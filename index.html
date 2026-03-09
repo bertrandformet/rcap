@@ -1396,7 +1396,19 @@ function initUserUI(user) {
 // ─────────────────────────────────────────
 // BOOTSTRAP — point d'entrée
 // ─────────────────────────────────────────
+// Timeout secours
+const loaderTimeout = setTimeout(() => {
+  const l = document.getElementById("loader");
+  const ls = document.getElementById("screen-login");
+  if (l && l.style.display !== "none") {
+    l.style.opacity = "0";
+    setTimeout(() => l.style.display = "none", 400);
+    ls.classList.remove("hidden");
+  }
+}, 4000);
+
 sb.auth.onAuthStateChange(async (event, session) => {
+  clearTimeout(loaderTimeout);
   const loader = document.getElementById('loader');
   const loginScreen = document.getElementById('screen-login');
   const appEl = document.getElementById('app');
@@ -1413,4 +1425,11 @@ sb.auth.onAuthStateChange(async (event, session) => {
   } else {
     currentUser = null;
     appEl.classList.remove('visible');
-    loginScreen
+    loginScreen.classList.remove('hidden');
+    loader.style.opacity = '0';
+    setTimeout(() => loader.style.display = 'none', 400);
+  }
+});
+</script>
+</body>
+</html>

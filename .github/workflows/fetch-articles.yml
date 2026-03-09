@@ -1,0 +1,41 @@
+name: RCap — Collecte des articles
+
+on:
+  schedule:
+    - cron: '0 7 * * 1-5'    # 8h Paris (UTC+1 hiver)
+    - cron: '0 13 * * 1-5'   # 14h Paris
+    - cron: '0 19 * * 1-5'   # 20h Paris
+  workflow_dispatch:           # déclenchement manuel possible
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout du repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Installer les dépendances
+        run: npm install @supabase/supabase-js rss-parser node-fetch
+
+      - name: Lancer la collecte
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node scripts/fetch.js
+```
+
+Clique **"Commit changes"** en bas.
+
+---
+
+**② `scripts/fetch.js`**
+
+Crée un nouveau fichier :
+```
+scripts/fetch.js

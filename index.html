@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RCap</title>
+
+<!-- Supabase SDK (chargé depuis CDN, pas d'install nécessaire) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --navy:       #1b3a6b;
+  --navy-dark:  #102444;
+  --navy-mid:   #2a5298;
+  --navy-soft:  #e8eef8;
+  --orange:     #f47920;
+  --orange-dk:  #c95e08;
+  --orange-soft:#fdeede;
+  --ink:        #1a1a2e;
+  --ink-light:  #4a5068;
+  --ink-faint:  #9098b8;
+  --surface:    #f7f8fc;
+  --white:      #ffffff;
+  --border:     #dde3f0;
+  --border-soft:#eef0f8;
+  --radius:     3px;
+  --shadow:     0 2px 10px rgba(27,58,107,0.08);
+  --shadow-lg:  0 8px 32px rgba(27,58,107,0.14);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); color:var(--ink); font-size:14px; line-height:1.6; }
+
+/* ── UTILITAIRES ── */
+.hidden { display:none !important; }
+.serif  { font-family:'Source Serif 4',serif; }
+
+/* ── NOTIFICATIONS ── */
+#toast {
+  position:fixed; bottom:24px; right:24px; z-index:9999;
+  background:var(--ink); color:white;
+  padding:12px 20px; border-radius:var(--radius);
+  font-size:13px; box-shadow:var(--shadow-lg);
+  transition:opacity 0.3s; opacity:0; pointer-events:none;
+}
+#toast.show { opacity:1; }
+#toast.error { background:#c0392b; }
+
+/* ── LOADER ── */
+#loader {
+  position:fixed; inset:0; background:var(--navy);
+  display:flex; align-items:center; justify-content:center;
+  z-index:9998; transition:opacity 0.4s;
+}
+.loader-logo { font-family:'Source Serif 4',serif; font-size:42px; color:white; letter-spacing:-1px; }
+.loader-logo em { color:var(--orange); font-style:normal; font-weight:300; }
+
+/* ── BOUTONS ── */
+.btn {
+  display:inline-flex; align-items:center; gap:8px;
+  padding:10px 20px; border:none; border-radius:var(--radius);
+  font-family:inherit; font-size:13px; font-weight:500;
+  cursor:pointer; transition:all 0.15s;
+}
+.btn-primary { background:var(--navy); color:white; }
+.btn-primary:hover { background:var(--navy-dark); }
+.btn-accent  { background:var(--orange); color:white; }
+.btn-accent:hover  { background:var(--orange-dk); }
+.btn-ghost   { background:transparent; color:var(--ink-light); border:1.5px solid var(--border); }
+.btn-ghost:hover   { border-color:var(--navy); color:var(--navy); }
+.btn-danger  { background:transparent; color:#c0392b; border:1.5px solid #f5c6cb; }
+.btn-danger:hover  { background:#fdf0f0; }
+.btn-sm  { padding:6px 13px; font-size:12px; }
+.btn-full { width:100%; justify-content:center; }
+.btn:disabled { opacity:0.5; cursor:not-allowed; }
+
+/* ── FORMULAIRES ── */
+.form-group { margin-bottom:16px; }
+.form-group label {
+  display:block; font-size:11px; letter-spacing:0.08em;
+  text-transform:uppercase; color:var(--ink-light);
+  margin-bottom:7px; font-weight:500;
+}
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width:100%; padding:10px 12px;
+  border:1.5px solid var(--border); border-radius:var(--radius);
+  background:var(--white); font-family:inherit;
+  font-size:14px; color:var(--ink); outline:none; transition:border-color 0.2s;
+}
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  border-color:var(--navy);
+  box-shadow:0 0 0 3px var(--navy-soft);
+}
+.form-group textarea { resize:vertical; min-height:76px; }
+.form-hint { font-size:11px; color:var(--ink-faint); margin-top:5px; }
+
+/* ════════════════════════════════════════
+   ÉCRAN LOGIN
+════════════════════════════════════════ */
+#screen-login {
+  min-height:100vh; background:var(--navy);
+  display:flex; align-items:center; justify-content:center;
+  position:relative; overflow:hidden;
+}
+.login-orb {
+  position:absolute; border-radius:50%; pointer-events:none;
+}
+.login-orb-1 {
+  width:500px; height:500px;
+  background:radial-gradient(circle, rgba(244,121,32,0.18) 0%, transparent 70%);
+  top:-180px; right:-120px;
+}
+.login-orb-2 {
+  width:380px; height:380px;
+  background:radial-gradient(circle, rgba(42,82,152,0.35) 0%, transparent 70%);
+  bottom:-100px; left:-80px;
+}
+.login-card {
+  position:relative; z-index:1;
+  background:var(--white); border-radius:var(--radius);
+  padding:44px 40px; width:400px;
+  box-shadow:var(--shadow-lg);
+}
+.login-logo { font-family:'Source Serif 4',serif; font-size:36px; letter-spacing:-1px; }
+.login-logo .rc { color:var(--navy); font-weight:600; }
+.login-logo .ap { color:var(--orange); font-weight:300; }
+.login-tagline { font-size:11px; color:var(--ink-faint); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:32px; margin-top:4px; }
+.login-divider {
+  text-align:center; color:var(--ink-faint); font-size:12px; margin:16px 0; position:relative;
+}
+.login-divider::before, .login-divider::after {
+  content:''; position:absolute; top:50%; width:42%; height:1px; background:var(--border);
+}
+.login-divider::before { left:0; }
+.login-divider::after  { right:0; }
+.login-footer { text-align:center; margin-top:20px; font-size:12px; color:var(--ink-faint); }
+
+/* ════════════════════════════════════════
+   APP SHELL
+════════════════════════════════════════ */
+#app { display:none; }
+#app.visible { display:grid; grid-template-columns:252px 1fr; min-height:100vh; }
+
+/* ── SIDEBAR ── */
+.sidebar {
+  background:var(--navy); display:flex; flex-direction:column;
+  position:sticky; top:0; height:100vh; overflow-y:auto;
+}
+.sidebar-header { padding:20px 16px 16px; }
+.sidebar-logo { font-family:'Source Serif 4',serif; font-size:24px; letter-spacing:-0.5px; }
+.sidebar-logo .rc { color:white; font-weight:600; }
+.sidebar-logo .ap { color:var(--orange); font-weight:300; }
+.user-badge {
+  display:flex; align-items:center; gap:10px; margin-top:14px;
+  padding:10px 12px; background:rgba(255,255,255,0.08); border-radius:var(--radius);
+}
+.user-avatar {
+  width:32px; height:32px; border-radius:50%;
+  background:var(--orange); color:white;
+  display:flex; align-items:center; justify-content:center;
+  font-size:12px; font-weight:700; flex-shrink:0;
+}
+.user-name  { font-size:13px; font-weight:500; color:white; }
+.user-email { font-size:11px; color:rgba(255,255,255,0.4); }
+
+.sidebar-section { padding:16px 10px 4px; }
+.sidebar-section-title {
+  font-size:10px; letter-spacing:0.12em; text-transform:uppercase;
+  color:rgba(255,255,255,0.35); font-weight:500;
+  padding:0 6px; margin-bottom:5px;
+}
+.sidebar-item {
+  display:flex; align-items:center; gap:10px;
+  padding:8px 10px; border-radius:var(--radius);
+  cursor:pointer; font-size:13px; color:rgba(255,255,255,0.6);
+  margin-bottom:1px; transition:background 0.12s; user-select:none;
+}
+.sidebar-item:hover  { background:rgba(255,255,255,0.07); color:rgba(255,255,255,0.9); }
+.sidebar-item.active { background:rgba(255,255,255,0.13); color:white; font-weight:500; }
+.item-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.dot-perso { background:#7eaaee; }
+.dot-team  { background:var(--orange); }
+.item-count {
+  margin-left:auto; font-size:10px; padding:1px 6px; border-radius:10px;
+  background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.65);
+}
+.sidebar-add {
+  display:flex; align-items:center; gap:7px;
+  padding:6px 10px; border-radius:var(--radius);
+  cursor:pointer; color:rgba(255,255,255,0.3); font-size:12px; transition:color 0.12s;
+}
+.sidebar-add:hover { color:rgba(255,255,255,0.65); }
+.sidebar-divider { height:1px; background:rgba(255,255,255,0.07); margin:6px 10px; }
+
+.sidebar-footer { margin-top:auto; padding:12px 10px; border-top:1px solid rgba(255,255,255,0.07); }
+.sidebar-footer-link {
+  display:flex; align-items:center; gap:9px;
+  font-size:12px; color:rgba(255,255,255,0.3);
+  cursor:pointer; padding:7px 8px; border-radius:var(--radius); transition:all 0.12s;
+}
+.sidebar-footer-link:hover { color:rgba(255,255,255,0.7); background:rgba(255,255,255,0.05); }
+
+/* ── MAIN ── */
+.main { display:flex; flex-direction:column; min-height:100vh; overflow:hidden; }
+.topbar {
+  background:var(--white); border-bottom:1px solid var(--border);
+  padding:13px 28px; display:flex; align-items:center; justify-content:space-between;
+  position:sticky; top:0; z-index:10;
+}
+.topbar-title { font-family:'Source Serif 4',serif; font-size:20px; font-weight:400; }
+.topbar-title em { color:var(--ink-faint); font-style:italic; }
+.topbar-actions { display:flex; gap:8px; align-items:center; }
+.main-content { padding:26px 28px; flex:1; overflow-y:auto; }
+
+/* ── PAGES (dans main) ── */
+.page { display:none; }
+.page.active { display:block; }
+
+/* ── DASHBOARD ── */
+.section-label {
+  font-size:10px; letter-spacing:0.12em; text-transform:uppercase;
+  color:var(--ink-faint); font-weight:500;
+  display:flex; align-items:center; gap:8px; margin-bottom:14px;
+}
+.section-label::before { content:''; width:8px; height:8px; border-radius:50%; display:inline-block; }
+.section-label.perso::before { background:var(--navy-mid); }
+.section-label.team::before  { background:var(--orange); }
+
+.cards-grid {
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(268px,1fr));
+  gap:14px; margin-bottom:32px;
+}
+.watchlist-card {
+  background:var(--white); border:1px solid var(--border);
+  border-radius:var(--radius); padding:18px;
+  cursor:pointer; transition:all 0.15s;
+}
+.watchlist-card:hover { border-color:var(--navy); box-shadow:var(--shadow); transform:translateY(-1px); }
+.watchlist-card.perso { border-top:3px solid var(--navy-mid); }
+.watchlist-card.team  { border-top:3px solid var(--orange); }
+.card-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:10px; gap:10px; }
+.card-name { font-family:'Source Serif 4',serif; font-size:16px; font-weight:400; line-height:1.3; }
+.badge {
+  font-size:10px; letter-spacing:0.06em; text-transform:uppercase;
+  padding:3px 8px; border-radius:2px; font-weight:500; flex-shrink:0; white-space:nowrap;
+}
+.badge-perso { background:var(--navy-soft); color:var(--navy); }
+.badge-team  { background:var(--orange-soft); color:var(--orange-dk); }
+.card-feeds  { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:12px; }
+.feed-chip {
+  font-size:11px; padding:2px 8px;
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:20px; color:var(--ink-light);
+}
+.card-meta {
+  display:flex; align-items:center; justify-content:space-between;
+  font-size:11px; color:var(--ink-faint);
+  padding-top:10px; border-top:1px solid var(--border-soft);
+}
+.card-meta-count { font-weight:600; color:var(--orange); }
+.card-new {
+  border:1.5px dashed var(--border); background:transparent;
+  display:flex; align-items:center; justify-content:center;
+  flex-direction:column; gap:10px; min-height:130px;
+  color:var(--ink-faint); transition:all 0.15s;
+}
+.card-new:hover { border-color:var(--navy); color:var(--navy); background:var(--navy-soft); transform:none; box-shadow:none; }
+.card-new span { font-size:13px; }
+.team-group { margin-bottom:26px; }
+.team-header { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+.team-name-label { font-family:'Source Serif 4',serif; font-size:17px; font-weight:400; }
+
+/* ── FORMULAIRE ── */
+.form-container { max-width:640px; margin:0 auto; }
+.form-section {
+  background:var(--white); border:1px solid var(--border);
+  border-radius:var(--radius); padding:24px; margin-bottom:16px;
+}
+.form-section-title { font-family:'Source Serif 4',serif; font-size:16px; margin-bottom:4px; }
+.form-section-desc  { font-size:12px; color:var(--ink-faint); margin-bottom:20px; }
+
+.scope-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.scope-opt {
+  border:1.5px solid var(--border); border-radius:var(--radius);
+  padding:14px; cursor:pointer; transition:all 0.15s;
+}
+.scope-opt:hover { border-color:var(--navy); }
+.scope-opt.selected.perso { border-color:var(--navy); background:var(--navy-soft); }
+.scope-opt.selected.team  { border-color:var(--orange); background:var(--orange-soft); }
+.scope-icon  { font-size:18px; margin-bottom:5px; }
+.scope-label { font-size:13px; font-weight:500; }
+.scope-desc  { font-size:11px; color:var(--ink-faint); }
+
+.team-selector { display:none; margin-top:14px; }
+.team-selector.visible { display:block; }
+.team-chips { display:flex; flex-wrap:wrap; gap:7px; margin-top:9px; }
+.team-chip {
+  padding:5px 13px; border:1.5px solid var(--border);
+  border-radius:20px; font-size:12px; cursor:pointer;
+  transition:all 0.15s; font-family:inherit;
+  background:white;
+}
+.team-chip:hover { border-color:var(--orange); }
+.team-chip.selected { border-color:var(--orange); background:var(--orange-soft); color:var(--orange-dk); }
+
+.feed-block {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius); padding:16px; margin-bottom:10px; position:relative;
+}
+.feed-block-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+.feed-block-title { font-size:12px; font-weight:500; color:var(--ink-light); }
+.feed-remove { background:none; border:none; cursor:pointer; color:var(--ink-faint); font-size:18px; line-height:1; transition:color 0.12s; }
+.feed-remove:hover { color:#c0392b; }
+.feed-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:end; }
+.feed-row .form-group { margin:0; }
+
+.keywords-input {
+  display:flex; flex-wrap:wrap; gap:5px; padding:8px 10px;
+  border:1.5px solid var(--border); border-radius:var(--radius);
+  background:var(--white); min-height:42px; cursor:text;
+  align-items:center; transition:border-color 0.2s;
+}
+.keywords-input:focus-within { border-color:var(--navy); box-shadow:0 0 0 3px var(--navy-soft); }
+.kw-tag {
+  display:flex; align-items:center; gap:4px;
+  background:var(--navy-soft); border:1px solid var(--border);
+  padding:2px 8px 2px 9px; border-radius:20px; font-size:12px; color:var(--navy);
+}
+.kw-remove { cursor:pointer; color:var(--ink-faint); font-size:14px; line-height:1; background:none; border:none; }
+.kw-remove:hover { color:var(--orange); }
+.kw-input {
+  border:none; outline:none; background:transparent;
+  font-family:inherit; font-size:12px; min-width:100px; color:var(--ink);
+}
+.add-feed-btn {
+  display:flex; align-items:center; gap:8px;
+  padding:10px 14px; border:1.5px dashed var(--border);
+  border-radius:var(--radius); background:transparent;
+  color:var(--ink-faint); font-family:inherit; font-size:13px;
+  cursor:pointer; width:100%; transition:all 0.15s;
+}
+.add-feed-btn:hover { border-color:var(--navy); color:var(--navy); background:var(--navy-soft); }
+.form-actions { display:flex; justify-content:flex-end; gap:10px; padding-top:4px; }
+
+/* ── ARTICLES ── */
+.search-box {
+  display:flex; align-items:center; gap:9px;
+  background:var(--surface); border:1.5px solid var(--border);
+  border-radius:var(--radius); padding:7px 13px; flex:1; max-width:320px;
+}
+.search-box:focus-within { border-color:var(--navy); }
+.search-box input { border:none; background:transparent; font-family:inherit; font-size:13px; color:var(--ink); outline:none; flex:1; }
+.filter-bar {
+  display:flex; gap:7px; align-items:center;
+  padding:10px 28px; background:var(--white);
+  border-bottom:1px solid var(--border); overflow-x:auto; flex-wrap:nowrap;
+  scrollbar-width:none;
+}
+.filter-bar::-webkit-scrollbar { display:none; }
+.filter-label { font-size:11px; color:var(--ink-faint); white-space:nowrap; }
+.filter-chip {
+  padding:4px 11px; border:1.5px solid var(--border);
+  border-radius:20px; font-size:12px; cursor:pointer;
+  white-space:nowrap; transition:all 0.15s; background:white; font-family:inherit;
+}
+.filter-chip:hover { border-color:var(--navy); color:var(--navy); }
+.filter-chip.active { background:var(--navy); color:white; border-color:var(--navy); }
+.filter-sep { width:1px; height:14px; background:var(--border); margin:0 3px; flex-shrink:0; }
+
+.articles-list { display:flex; flex-direction:column; gap:2px; padding:16px 28px; }
+.article-item {
+  background:var(--white); border:1px solid var(--border);
+  padding:14px 16px; display:grid; grid-template-columns:auto 1fr auto;
+  gap:13px; align-items:start; cursor:pointer; transition:all 0.12s; border-radius:2px;
+}
+.article-item:hover { border-color:var(--navy); box-shadow:var(--shadow); z-index:1; position:relative; }
+.article-cb {
+  width:16px; height:16px; border:1.5px solid var(--border);
+  border-radius:2px; margin-top:2px; flex-shrink:0; cursor:pointer; transition:all 0.12s;
+}
+.article-cb:hover { border-color:var(--navy); }
+.article-cb.checked {
+  background:var(--navy); border-color:var(--navy);
+  background-image:url("data:image/svg+xml,%3Csvg width='10' height='8' viewBox='0 0 10 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 4L3.5 6.5L9 1' stroke='white' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:center;
+}
+.article-src { display:flex; align-items:center; gap:7px; margin-bottom:3px; }
+.src-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.src-name { font-size:11px; color:var(--ink-faint); }
+.article-rubrique {
+  font-size:11px; padding:1px 6px; background:var(--surface);
+  border-radius:2px; color:var(--ink-light); border:1px solid var(--border-soft);
+}
+.article-title { font-family:'Source Serif 4',serif; font-size:15px; font-weight:400; line-height:1.4; margin-bottom:4px; }
+.article-desc {
+  font-size:12px; color:var(--ink-light); line-height:1.6;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
+.article-date { font-size:11px; color:var(--ink-faint); white-space:nowrap; text-align:right; padding-top:2px; }
+.articles-footer {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 28px; background:var(--white);
+  border-top:1px solid var(--border); position:sticky; bottom:0;
+}
+.selection-info { font-size:12px; color:var(--ink-faint); }
+.export-btns { display:flex; gap:8px; }
+
+/* ── EMPTY STATE ── */
+.empty-state {
+  display:flex; flex-direction:column; align-items:center;
+  justify-content:center; padding:60px 20px; text-align:center; gap:14px;
+}
+.empty-state svg { opacity:0.25; }
+.empty-state h3 { font-family:'Source Serif 4',serif; font-size:20px; font-weight:400; color:var(--ink-light); }
+.empty-state p  { font-size:13px; color:var(--ink-faint); max-width:320px; line-height:1.6; }
+
+/* ── SPINNER ── */
+.spinner {
+  width:18px; height:18px; border:2px solid rgba(255,255,255,0.3);
+  border-top-color:white; border-radius:50%; animation:spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ── ANIMATIONS ── */
+@keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
+.page.active { animation:fadeIn 0.2s ease; }
+</style>
+</head>
+<body>
+
+<!-- LOADER -->
+<div id="loader">
+  <div class="loader-logo"><span class="rc">RC</span><em>ap</em></div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- ════════════════════════════════════════
+     ÉCRAN LOGIN
+════════════════════════════════════════ -->
+<div id="screen-login" class="hidden">
+  <div class="login-orb login-orb-1"></div>
+  <div class="login-orb login-orb-2"></div>
+  <div class="login-card">
+    <div class="login-logo"><span class="rc">RC</span><span class="ap">ap</span></div>
+    <div class="login-tagline">Votre espace de veille</div>
+
+    <div class="form-group">
+      <label>Adresse email</label>
+      <input id="login-email" type="email" placeholder="prenom.nom@reseau-canope.fr" autocomplete="email">
+    </div>
+    <div class="form-group">
+      <label>Mot de passe</label>
+      <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button id="btn-login" class="btn btn-primary btn-full" style="margin-top:4px;" onclick="doLogin()">
+      Se connecter →
+    </button>
+    <div class="login-divider">ou</div>
+    <button class="btn btn-ghost btn-full" onclick="doMagicLink()">
+      Recevoir un lien de connexion par email
+    </button>
+    <div class="login-footer">Accès sur invitation. <a href="mailto:admin@reseau-canope.fr" style="color:var(--navy);">Contacter l'administrateur</a></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     APPLICATION PRINCIPALE
+════════════════════════════════════════ -->
+<div id="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo"><span class="rc">RC</span><span class="ap">ap</span></div>
+      <div class="user-badge">
+        <div class="user-avatar" id="sidebar-avatar">?</div>
+        <div>
+          <div class="user-name" id="sidebar-name">—</div>
+          <div class="user-email" id="sidebar-email">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="sidebar-personal-section" class="sidebar-section">
+      <div class="sidebar-section-title">Mes espaces</div>
+      <div id="sidebar-personal-items"></div>
+      <div class="sidebar-add" onclick="showCreate()">
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        Nouvel espace personnel
+      </div>
+    </div>
+
+    <div id="sidebar-teams-container"></div>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-link" onclick="showPage('teams')">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="5" cy="5" r="2.5" stroke="currentColor" stroke-width="1.3"/><circle cx="9.5" cy="5" r="2.5" stroke="currentColor" stroke-width="1.3"/><path d="M1 12c0-2 1.8-3.5 4-3.5M7 12c0-2 1.8-3.5 4-3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Gérer les équipes
+      </div>
+      <div class="sidebar-footer-link" onclick="doLogout()">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 7h7M9.5 4.5L12 7l-2.5 2.5M2 2v10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Déconnexion
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div class="topbar-title" id="topbar-title">Tableau de bord</div>
+      <div class="topbar-actions" id="topbar-actions">
+        <button class="btn btn-accent btn-sm" onclick="showCreate()">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v8M2 6h8" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Nouvel espace
+        </button>
+      </div>
+    </div>
+
+    <!-- ── PAGE : DASHBOARD ── -->
+    <div id="page-dashboard" class="page main-content">
+
+      <div class="section-label perso">Mes espaces personnels</div>
+      <div class="cards-grid" id="grid-personal">
+        <div class="watchlist-card card-new" onclick="showCreate()">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M11 4v14M4 11h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>Créer un espace personnel</span>
+        </div>
+      </div>
+
+      <div id="team-groups-container"></div>
+
+    </div>
+
+    <!-- ── PAGE : CRÉER UN ESPACE ── -->
+    <div id="page-create" class="page main-content">
+      <div class="form-container">
+
+        <div class="form-section">
+          <div class="form-section-title">Informations générales</div>
+          <div class="form-section-desc">Nommez votre espace pour le retrouver dans la barre latérale.</div>
+          <div class="form-group">
+            <label>Nom de l'espace *</label>
+            <input id="create-name" type="text" placeholder="Ex : Veille réglementaire">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label>Description <span style="font-style:italic;text-transform:none;letter-spacing:0;color:var(--ink-faint)">(optionnel)</span></label>
+            <textarea id="create-desc" placeholder="Objectif de cet espace de veille…"></textarea>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">Portée</div>
+          <div class="form-section-desc">Personnel = visible par vous seul. Équipe = partagé avec les membres choisis.</div>
+          <div class="scope-grid">
+            <div class="scope-opt perso selected" id="scope-perso" onclick="selectScope('personal')">
+              <div class="scope-icon">👤</div>
+              <div class="scope-label">Personnel</div>
+              <div class="scope-desc">Visible par moi uniquement</div>
+            </div>
+            <div class="scope-opt team" id="scope-team" onclick="selectScope('team')">
+              <div class="scope-icon">👥</div>
+              <div class="scope-label">Équipe</div>
+              <div class="scope-desc">Partagé avec mon équipe</div>
+            </div>
+          </div>
+          <div class="team-selector" id="team-selector">
+            <label style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-light);font-weight:500;">Choisir une équipe</label>
+            <div class="team-chips" id="team-chips-list"></div>
+            <div style="margin-top:12px;">
+              <div style="display:flex;gap:8px;">
+                <input id="new-team-input" type="text" placeholder="Nom de la nouvelle équipe…"
+                  style="flex:1;padding:8px 11px;border:1.5px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;"
+                  onkeydown="if(event.key==='Enter') createTeam()">
+                <button class="btn btn-ghost btn-sm" onclick="createTeam()">Créer</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">Sources RSS</div>
+          <div class="form-section-desc">Ajoutez les flux à surveiller. Les mots-clés filtrent les articles — seuls ceux qui les contiennent sont archivés.</div>
+          <div id="feeds-container"></div>
+          <button class="add-feed-btn" onclick="addFeedBlock()">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 2v9M2 6.5h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            Ajouter un flux RSS
+          </button>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">Fréquence de mise à jour</div>
+          <div class="form-section-desc">Le workflow GitHub Actions collectera les articles selon ce rythme.</div>
+          <div class="form-group" style="margin:0">
+            <label>Fréquence</label>
+            <select id="create-frequency">
+              <option value="3x_day">3 fois par jour — 8h, 14h, 20h (recommandé)</option>
+              <option value="2x_day">2 fois par jour — 8h et 18h</option>
+              <option value="1x_day">1 fois par jour — 8h</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-ghost" onclick="showPage('dashboard')">Annuler</button>
+          <button id="btn-create" class="btn btn-accent" onclick="createWatchlist()">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 6.5l3 3 6-5.5" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Créer l'espace
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── PAGE : ARTICLES ── -->
+    <div id="page-articles" class="page" style="display:flex;flex-direction:column;height:calc(100vh - 53px);">
+
+      <div class="filter-bar" id="filter-bar">
+        <span class="filter-label">Source :</span>
+        <div class="filter-chip active" onclick="filterSource(this, null)">Toutes</div>
+        <!-- rempli dynamiquement -->
+        <div class="filter-sep"></div>
+        <span class="filter-label">Période :</span>
+        <div class="filter-chip active" onclick="filterPeriod(this, 7)">7 jours</div>
+        <div class="filter-chip" onclick="filterPeriod(this, 30)">30 jours</div>
+        <div class="filter-chip" onclick="filterPeriod(this, 90)">3 mois</div>
+        <div class="filter-chip" onclick="filterPeriod(this, 0)">Tout</div>
+      </div>
+
+      <div class="articles-list" id="articles-list" style="flex:1;overflow-y:auto;"></div>
+
+      <div class="articles-footer">
+        <div class="selection-info" id="selection-info">0 article sélectionné</div>
+        <div class="export-btns">
+          <button class="btn btn-ghost btn-sm" onclick="selectAll()">Tout sélectionner</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportCSV()">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 2v7M3.5 6l3 3 3-3M1 11h11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+            Exporter CSV
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="exportJSON()">JSON</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PAGE : ÉQUIPES ── -->
+    <div id="page-teams" class="page main-content">
+      <div class="form-container">
+        <div class="form-section">
+          <div class="form-section-title">Mes équipes</div>
+          <div class="form-section-desc">Créez des équipes et invitez des collègues par email.</div>
+          <div id="teams-list" style="margin-bottom:16px;"></div>
+          <div style="display:flex;gap:8px;">
+            <input id="team-name-input" type="text" placeholder="Nom de la nouvelle équipe…"
+              style="flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;"
+              onkeydown="if(event.key==='Enter') createTeamFromPage()">
+            <button class="btn btn-accent" onclick="createTeamFromPage()">Créer une équipe</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ════════════════════════════════════════
+     JAVASCRIPT
+════════════════════════════════════════ -->
+<script>
+// ─────────────────────────────────────────
+// CONFIG — remplace ces deux valeurs
+// ─────────────────────────────────────────
+const SUPABASE_URL  = 'REMPLACE_PAR_TON_URL';
+const SUPABASE_ANON = 'REMPLACE_PAR_TA_CLE_ANON';
+
+// ─────────────────────────────────────────
+// INIT SUPABASE
+// ─────────────────────────────────────────
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// ─────────────────────────────────────────
+// ÉTAT GLOBAL
+// ─────────────────────────────────────────
+let currentUser      = null;
+let currentWatchlist = null;   // watchlist ouverte dans articles
+let allArticles      = [];     // articles chargés
+let activeFeedFilter = null;   // null = toutes les sources
+let activePeriod     = 7;      // jours
+let selectedIds      = new Set();
+let userTeams        = [];     // équipes de l'utilisateur
+let selectedTeamId   = null;   // équipe choisie dans le formulaire
+let currentScope     = 'personal';
+let feedCount        = 0;
+let srcColors        = {};     // url → couleur pour les dots sources
+
+const COLORS = ['#1b3a6b','#f47920','#2a5298','#c95e08','#16a34a','#7c3aed','#0891b2','#dc2626'];
+
+// ─────────────────────────────────────────
+// UTILITAIRES
+// ─────────────────────────────────────────
+function toast(msg, isError = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.className = '', 3000);
+}
+
+function icon(path, size = 14) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none"><path d="${path}" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`;
+}
+
+function initials(name = '') {
+  return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?';
+}
+
+function relativeDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diff = Math.floor((now - d) / 86400000);
+  if (diff === 0) return `Aujourd'hui ${d.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'})}`;
+  if (diff === 1) return `Hier ${d.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'})}`;
+  return d.toLocaleDateString('fr-FR', {day:'2-digit', month:'2-digit'});
+}
+
+// ─────────────────────────────────────────
+// AUTH
+// ─────────────────────────────────────────
+async function doLogin() {
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!email || !password) { toast('Email et mot de passe requis', true); return; }
+
+  const btn = document.getElementById('btn-login');
+  btn.innerHTML = '<div class="spinner"></div> Connexion…';
+  btn.disabled = true;
+
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) {
+    toast('Email ou mot de passe incorrect', true);
+    btn.innerHTML = 'Se connecter →';
+    btn.disabled = false;
+  }
+  // Si succès → onAuthStateChange prend le relais
+}
+
+async function doMagicLink() {
+  const email = document.getElementById('login-email').value.trim();
+  if (!email) { toast('Entrez votre email d\'abord', true); return; }
+  const { error } = await sb.auth.signInWithOtp({ email });
+  if (error) toast(error.message, true);
+  else toast(`Lien envoyé à ${email} — vérifiez vos emails`);
+}
+
+async function doLogout() {
+  await sb.auth.signOut();
+}
+
+// ─────────────────────────────────────────
+// NAVIGATION
+// ─────────────────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const p = document.getElementById('page-' + name);
+  if (p) p.classList.add('active');
+
+  // Topbar
+  const titles = {
+    dashboard: 'Tableau de bord',
+    create: 'Créer un <em>espace de veille</em>',
+    teams: 'Gérer les <em>équipes</em>',
+  };
+  if (name in titles) {
+    document.getElementById('topbar-title').innerHTML = titles[name];
+    document.getElementById('topbar-actions').innerHTML = name === 'dashboard'
+      ? `<button class="btn btn-accent btn-sm" onclick="showCreate()"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v8M2 6h8" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg> Nouvel espace</button>`
+      : (name === 'create' ? `<button class="btn btn-ghost btn-sm" onclick="showPage('dashboard')">Annuler</button>` : '');
+  }
+
+  // Sidebar actif
+  document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+}
+
+function showCreate() {
+  initCreateForm();
+  showPage('create');
+}
+
+// ─────────────────────────────────────────
+// CHARGEMENT DONNÉES
+// ─────────────────────────────────────────
+async function loadAll() {
+  await loadTeams();
+  await loadDashboard();
+  await loadTeamsPage();
+}
+
+async function loadTeams() {
+  const { data } = await sb
+    .from('team_members')
+    .select('team_id, role, teams(id, name)')
+    .eq('user_id', currentUser.id);
+
+  userTeams = (data || []).map(r => ({ ...r.teams, role: r.role }));
+}
+
+async function loadDashboard() {
+  const { data: watchlists } = await sb
+    .from('watchlists')
+    .select('*, feeds(id, label, url)')
+    .order('created_at', { ascending: false });
+
+  if (!watchlists) return;
+
+  // Compter les articles récents par watchlist
+  const counts = {};
+  const since = new Date();
+  since.setDate(since.getDate() - 7);
+  const { data: recent } = await sb
+    .from('articles')
+    .select('watchlist_id')
+    .gte('published_at', since.toISOString());
+
+  (recent || []).forEach(a => {
+    counts[a.watchlist_id] = (counts[a.watchlist_id] || 0) + 1;
+  });
+
+  // Séparer perso / équipe
+  const personal = watchlists.filter(w => w.scope === 'personal');
+  const byTeam   = {};
+  watchlists.filter(w => w.scope === 'team').forEach(w => {
+    if (!byTeam[w.team_id]) byTeam[w.team_id] = [];
+    byTeam[w.team_id].push(w);
+  });
+
+  renderPersonalGrid(personal, counts);
+  renderTeamGroups(byTeam, counts);
+  renderSidebar(personal, byTeam);
+}
+
+// ─────────────────────────────────────────
+// RENDU DASHBOARD
+// ─────────────────────────────────────────
+function renderPersonalGrid(watchlists, counts) {
+  const grid = document.getElementById('grid-personal');
+  grid.innerHTML = '';
+  watchlists.forEach(w => grid.appendChild(makeCard(w, counts)));
+  // Bouton "créer"
+  const add = document.createElement('div');
+  add.className = 'watchlist-card card-new';
+  add.innerHTML = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M11 4v14M4 11h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Créer un espace personnel</span>`;
+  add.onclick = showCreate;
+  grid.appendChild(add);
+}
+
+function renderTeamGroups(byTeam, counts) {
+  const container = document.getElementById('team-groups-container');
+  container.innerHTML = '';
+  if (Object.keys(byTeam).length === 0) return;
+
+  const label = document.createElement('div');
+  label.className = 'section-label team';
+  label.textContent = 'Espaces d\'équipe';
+  container.appendChild(label);
+
+  Object.entries(byTeam).forEach(([teamId, watchlists]) => {
+    const team = userTeams.find(t => t.id === teamId) || { name: 'Équipe' };
+    const group = document.createElement('div');
+    group.className = 'team-group';
+    const header = `<div class="team-header"><div class="team-name-label">${team.name}</div></div>`;
+    group.innerHTML = header;
+    const grid = document.createElement('div');
+    grid.className = 'cards-grid';
+    watchlists.forEach(w => grid.appendChild(makeCard(w, counts)));
+    group.appendChild(grid);
+    container.appendChild(group);
+  });
+}
+
+function makeCard(w, counts) {
+  const card = document.createElement('div');
+  card.className = `watchlist-card ${w.scope === 'team' ? 'team' : 'perso'}`;
+  card.onclick = () => openWatchlist(w);
+  const feeds = (w.feeds || []).slice(0, 3);
+  const extra  = (w.feeds || []).length - 3;
+  const chips  = feeds.map(f => `<span class="feed-chip">${f.label || f.url}</span>`).join('');
+  const moreChip = extra > 0 ? `<span class="feed-chip">+${extra} flux</span>` : '';
+  const count = counts[w.id] || 0;
+  card.innerHTML = `
+    <div class="card-header">
+      <div class="card-name">${w.name}</div>
+      <span class="badge ${w.scope === 'team' ? 'badge-team' : 'badge-perso'}">${w.scope === 'team' ? 'Équipe' : 'Perso'}</span>
+    </div>
+    <div class="card-feeds">${chips}${moreChip}</div>
+    <div class="card-meta">
+      <span><span class="card-meta-count">${count}</span> articles (7j)</span>
+      <span>${w.feeds?.length || 0} flux RSS</span>
+    </div>`;
+  return card;
+}
+
+function renderSidebar(personal, byTeam) {
+  // Perso
+  const pi = document.getElementById('sidebar-personal-items');
+  pi.innerHTML = '';
+  personal.forEach(w => {
+    const item = document.createElement('div');
+    item.className = 'sidebar-item';
+    item.dataset.wid = w.id;
+    item.innerHTML = `<span class="item-dot dot-perso"></span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${w.name}</span>`;
+    item.onclick = () => openWatchlist(w);
+    pi.appendChild(item);
+  });
+
+  // Équipes
+  const tc = document.getElementById('sidebar-teams-container');
+  tc.innerHTML = '';
+  Object.entries(byTeam).forEach(([teamId, watchlists]) => {
+    const team = userTeams.find(t => t.id === teamId) || { name: 'Équipe' };
+    const sec = document.createElement('div');
+    sec.className = 'sidebar-section';
+    let html = `<div class="sidebar-section-title">${team.name}</div>`;
+    watchlists.forEach(w => {
+      html += `<div class="sidebar-item" data-wid="${w.id}" onclick="openWatchlist(${JSON.stringify(w).replace(/"/g,'&quot;')})">
+        <span class="item-dot dot-team"></span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${w.name}</span>
+      </div>`;
+    });
+    html += `<div class="sidebar-add" onclick="showCreate()">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Partager un espace
+    </div>`;
+    sec.innerHTML = html;
+    tc.appendChild(sec);
+    const div = document.createElement('div');
+    div.className = 'sidebar-divider';
+    tc.appendChild(div);
+  });
+}
+
+// ─────────────────────────────────────────
+// ARTICLES
+// ─────────────────────────────────────────
+async function openWatchlist(w) {
+  currentWatchlist = w;
+  selectedIds.clear();
+  activeFeedFilter = null;
+  activePeriod = 7;
+  allArticles = [];
+
+  // Topbar
+  document.getElementById('topbar-title').innerHTML = `<em>${w.name}</em>`;
+  document.getElementById('topbar-actions').innerHTML = `
+    <div class="search-box">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 9.5L12.5 12.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      <input type="text" placeholder="Rechercher…" oninput="searchArticles(this.value)">
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="showPage('dashboard')">← Retour</button>`;
+
+  // Sidebar actif
+  document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+  document.querySelectorAll(`[data-wid="${w.id}"]`).forEach(i => i.classList.add('active'));
+
+  // Filtre sources
+  await buildSourceFilters(w);
+  await fetchArticles();
+
+  showPage('articles');
+}
+
+async function buildSourceFilters(w) {
+  const bar = document.getElementById('filter-bar');
+  // Garder les éléments fixes (période), reconstruire les sources
+  const { data: feeds } = await sb.from('feeds').select('id,label,url').eq('watchlist_id', w.id);
+  srcColors = {};
+  (feeds || []).forEach((f, i) => { srcColors[f.id] = COLORS[i % COLORS.length]; });
+
+  bar.innerHTML = `<span class="filter-label">Source :</span>
+    <div class="filter-chip active" onclick="filterSource(this, null)">Toutes</div>`;
+  (feeds || []).forEach(f => {
+    const chip = document.createElement('div');
+    chip.className = 'filter-chip';
+    chip.textContent = f.label || f.url;
+    chip.onclick = () => filterSource(chip, f.id);
+    bar.appendChild(chip);
+  });
+  bar.innerHTML += `<div class="filter-sep"></div>
+    <span class="filter-label">Période :</span>
+    <div class="filter-chip active" onclick="filterPeriod(this,7)">7 jours</div>
+    <div class="filter-chip" onclick="filterPeriod(this,30)">30 jours</div>
+    <div class="filter-chip" onclick="filterPeriod(this,90)">3 mois</div>
+    <div class="filter-chip" onclick="filterPeriod(this,0)">Tout</div>`;
+}
+
+async function fetchArticles() {
+  const list = document.getElementById('articles-list');
+  list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--ink-faint);">Chargement…</div>';
+
+  let query = sb.from('articles')
+    .select('*, feeds(id,label,url)')
+    .eq('watchlist_id', currentWatchlist.id)
+    .order('published_at', { ascending: false })
+    .limit(200);
+
+  if (activeFeedFilter)  query = query.eq('feed_id', activeFeedFilter);
+  if (activePeriod > 0) {
+    const since = new Date();
+    since.setDate(since.getDate() - activePeriod);
+    query = query.gte('published_at', since.toISOString());
+  }
+
+  const { data, error } = await query;
+  if (error) { toast('Erreur chargement articles', true); return; }
+  allArticles = data || [];
+  renderArticles(allArticles);
+}
+
+function renderArticles(articles) {
+  const list = document.getElementById('articles-list');
+  list.innerHTML = '';
+
+  if (articles.length === 0) {
+    list.innerHTML = `<div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><rect x="8" y="8" width="32" height="32" rx="4" stroke="currentColor" stroke-width="2"/><path d="M16 20h16M16 28h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <h3>Aucun article</h3>
+      <p>Les articles apparaîtront ici après la prochaine exécution du workflow GitHub Actions.</p>
+    </div>`;
+    return;
+  }
+
+  articles.forEach(a => {
+    const item = document.createElement('div');
+    item.className = 'article-item';
+    const color = srcColors[a.feed_id] || '#9098b8';
+    const checked = selectedIds.has(a.id) ? 'checked' : '';
+    item.innerHTML = `
+      <div class="article-cb ${checked}" onclick="toggleSelect(event,'${a.id}')"></div>
+      <div>
+        <div class="article-src">
+          <span class="src-dot" style="background:${color}"></span>
+          <span class="src-name">${a.feeds?.label || a.feeds?.url || '—'}</span>
+          ${a.rubrique ? `<span class="article-rubrique">${a.rubrique}</span>` : ''}
+        </div>
+        <div class="article-title">${a.title}</div>
+        ${a.description ? `<div class="article-desc">${a.description}</div>` : ''}
+      </div>
+      <div class="article-date">${relativeDate(a.published_at)}</div>`;
+    item.querySelector('.article-title').onclick = () => window.open(a.url, '_blank');
+    list.appendChild(item);
+  });
+  updateSelectionInfo();
+}
+
+function filterSource(el, feedId) {
+  document.querySelectorAll('#filter-bar .filter-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  activeFeedFilter = feedId;
+  fetchArticles();
+}
+
+function filterPeriod(el, days) {
+  // Désactiver seulement les chips de période
+  const bar = document.getElementById('filter-bar');
+  bar.querySelectorAll('.filter-chip').forEach(c => {
+    if (['7 jours','30 jours','3 mois','Tout'].includes(c.textContent)) c.classList.remove('active');
+  });
+  el.classList.add('active');
+  activePeriod = days;
+  fetchArticles();
+}
+
+function searchArticles(query) {
+  if (!query.trim()) { renderArticles(allArticles); return; }
+  const q = query.toLowerCase();
+  renderArticles(allArticles.filter(a =>
+    a.title?.toLowerCase().includes(q) || a.description?.toLowerCase().includes(q)
+  ));
+}
+
+function toggleSelect(e, id) {
+  e.stopPropagation();
+  const cb = e.currentTarget;
+  if (selectedIds.has(id)) { selectedIds.delete(id); cb.classList.remove('checked'); }
+  else { selectedIds.add(id); cb.classList.add('checked'); }
+  updateSelectionInfo();
+}
+
+function selectAll() {
+  const all = document.querySelectorAll('.article-cb');
+  const addAll = selectedIds.size < allArticles.length;
+  allArticles.forEach(a => { if (addAll) selectedIds.add(a.id); else selectedIds.delete(a.id); });
+  all.forEach(cb => cb.classList.toggle('checked', addAll));
+  updateSelectionInfo();
+}
+
+function updateSelectionInfo() {
+  const n = selectedIds.size;
+  document.getElementById('selection-info').textContent =
+    n === 0 ? 'Aucun article sélectionné'
+    : `${n} article${n > 1 ? 's' : ''} sélectionné${n > 1 ? 's' : ''}`;
+}
+
+function getSelectedArticles() {
+  return allArticles.filter(a => selectedIds.has(a.id));
+}
+
+function exportCSV() {
+  const arts = getSelectedArticles();
+  if (!arts.length) { toast('Sélectionnez des articles à exporter', true); return; }
+  const header = 'Titre;Source;Date;URL;Rubrique';
+  const rows = arts.map(a =>
+    `"${(a.title||'').replace(/"/g,'""')}";"${a.feeds?.label||''}";"${a.published_at||''}";"${a.url||''}";"${a.rubrique||''}"`
+  );
+  download(`rcap-export-${Date.now()}.csv`, [header, ...rows].join('\n'), 'text/csv');
+  toast(`${arts.length} article(s) exporté(s) en CSV`);
+}
+
+function exportJSON() {
+  const arts = getSelectedArticles();
+  if (!arts.length) { toast('Sélectionnez des articles à exporter', true); return; }
+  download(`rcap-export-${Date.now()}.json`, JSON.stringify(arts, null, 2), 'application/json');
+  toast(`${arts.length} article(s) exporté(s) en JSON`);
+}
+
+function download(filename, content, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.download = filename;
+  a.click();
+}
+
+// ─────────────────────────────────────────
+// CRÉER UN ESPACE
+// ─────────────────────────────────────────
+function initCreateForm() {
+  document.getElementById('create-name').value = '';
+  document.getElementById('create-desc').value = '';
+  document.getElementById('create-frequency').value = '3x_day';
+  document.getElementById('feeds-container').innerHTML = '';
+  feedCount = 0;
+  currentScope = 'personal';
+  selectedTeamId = null;
+  document.getElementById('scope-perso').classList.add('selected');
+  document.getElementById('scope-team').classList.remove('selected');
+  document.getElementById('team-selector').classList.remove('visible');
+  addFeedBlock();
+  renderTeamChips();
+}
+
+function selectScope(scope) {
+  currentScope = scope;
+  document.getElementById('scope-perso').classList.toggle('selected', scope === 'personal');
+  document.getElementById('scope-team').classList.toggle('selected', scope === 'team');
+  document.getElementById('team-selector').classList.toggle('visible', scope === 'team');
+}
+
+function renderTeamChips() {
+  const container = document.getElementById('team-chips-list');
+  container.innerHTML = '';
+  userTeams.forEach(t => {
+    const chip = document.createElement('div');
+    chip.className = 'team-chip' + (t.id === selectedTeamId ? ' selected' : '');
+    chip.textContent = t.name;
+    chip.onclick = () => {
+      selectedTeamId = t.id;
+      renderTeamChips();
+    };
+    container.appendChild(chip);
+  });
+}
+
+function addFeedBlock() {
+  feedCount++;
+  const n = feedCount;
+  const container = document.getElementById('feeds-container');
+  const block = document.createElement('div');
+  block.className = 'feed-block';
+  block.id = `feed-block-${n}`;
+  block.innerHTML = `
+    <div class="feed-block-header">
+      <span class="feed-block-title">Flux ${n}</span>
+      <button class="feed-remove" onclick="document.getElementById('feed-block-${n}').remove()" title="Supprimer">×</button>
+    </div>
+    <div class="feed-row">
+      <div class="form-group">
+        <label>URL du flux RSS *</label>
+        <input type="url" id="feed-url-${n}" placeholder="https://example.com/feed.xml" style="font-size:13px;">
+      </div>
+      <button class="btn btn-ghost btn-sm" style="margin-bottom:1px;" onclick="testFeed(${n})">Tester</button>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Nom affiché</label>
+      <input type="text" id="feed-label-${n}" placeholder="Ex : Légifrance" style="font-size:13px;">
+    </div>
+    <div class="form-group" style="margin:0;">
+      <label>Mots-clés filtrants <span style="font-style:italic;text-transform:none;letter-spacing:0;color:var(--ink-faint)">(Entrée pour valider)</span></label>
+      <div class="keywords-input" id="kw-box-${n}" onclick="this.querySelector('.kw-input').focus()">
+        <input class="kw-input" id="kw-input-${n}" type="text" placeholder="Ajouter un mot-clé…"
+          onkeydown="addKeyword(event, ${n})">
+      </div>
+      <div class="form-hint">Laissez vide pour archiver tous les articles du flux.</div>
+    </div>`;
+  container.appendChild(block);
+}
+
+async function testFeed(n) {
+  const url = document.getElementById(`feed-url-${n}`).value.trim();
+  if (!url) { toast('Entrez une URL d\'abord', true); return; }
+  toast(`Test du flux en cours…`);
+  // Vérification basique (CORS peut bloquer côté navigateur — on informe)
+  try {
+    const r = await fetch(url, { mode: 'no-cors' });
+    toast('Flux accessible ✓ (vérification complète faite par le workflow)');
+  } catch {
+    toast('Impossible de tester depuis le navigateur — le workflow vérifiera à l\'exécution');
+  }
+}
+
+function addKeyword(e, n) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const input = document.getElementById(`kw-input-${n}`);
+  const val = input.value.trim();
+  if (!val) return;
+  const tag = document.createElement('span');
+  tag.className = 'kw-tag';
+  tag.innerHTML = `${val} <button class="kw-remove" onclick="this.parentElement.remove()">×</button>`;
+  document.getElementById(`kw-box-${n}`).insertBefore(tag, input);
+  input.value = '';
+}
+
+function getKeywords(n) {
+  return Array.from(document.querySelectorAll(`#kw-box-${n} .kw-tag`))
+    .map(t => t.childNodes[0].textContent.trim())
+    .filter(Boolean);
+}
+
+async function createWatchlist() {
+  const name = document.getElementById('create-name').value.trim();
+  if (!name) { toast('Le nom est obligatoire', true); return; }
+  if (currentScope === 'team' && !selectedTeamId) { toast('Sélectionnez une équipe', true); return; }
+
+  // Collecter les feeds
+  const feedBlocks = document.querySelectorAll('.feed-block');
+  const feedsData = [];
+  for (const block of feedBlocks) {
+    const n = block.id.split('-').pop();
+    const url = document.getElementById(`feed-url-${n}`)?.value.trim();
+    if (!url) continue;
+    feedsData.push({
+      url,
+      label: document.getElementById(`feed-label-${n}`)?.value.trim() || url,
+      keywords: getKeywords(n),
+    });
+  }
+  if (feedsData.length === 0) { toast('Ajoutez au moins un flux RSS', true); return; }
+
+  const btn = document.getElementById('btn-create');
+  btn.innerHTML = '<div class="spinner"></div> Création…';
+  btn.disabled = true;
+
+  try {
+    // 1. Créer la watchlist
+    const { data: wl, error: wlErr } = await sb.from('watchlists').insert({
+      name,
+      description: document.getElementById('create-desc').value.trim() || null,
+      owner_id: currentUser.id,
+      scope: currentScope,
+      team_id: currentScope === 'team' ? selectedTeamId : null,
+      frequency: document.getElementById('create-frequency').value,
+    }).select().single();
+
+    if (wlErr) throw wlErr;
+
+    // 2. Créer les feeds
+    const feedsToInsert = feedsData.map(f => ({
+      watchlist_id: wl.id,
+      url: f.url,
+      label: f.label,
+      keywords: f.keywords,
+    }));
+    const { error: feedErr } = await sb.from('feeds').insert(feedsToInsert);
+    if (feedErr) throw feedErr;
+
+    toast(`Espace "${name}" créé avec succès ✓`);
+    await loadAll();
+    showPage('dashboard');
+
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 6.5l3 3 6-5.5" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg> Créer l\'espace';
+    btn.disabled = false;
+  }
+}
+
+// ─────────────────────────────────────────
+// ÉQUIPES
+// ─────────────────────────────────────────
+async function loadTeamsPage() {
+  const list = document.getElementById('teams-list');
+  list.innerHTML = '';
+  if (userTeams.length === 0) {
+    list.innerHTML = '<p style="color:var(--ink-faint);font-size:13px;margin-bottom:16px;">Vous n\'êtes membre d\'aucune équipe pour l\'instant.</p>';
+    return;
+  }
+  userTeams.forEach(t => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border-soft);';
+    row.innerHTML = `
+      <div>
+        <div style="font-weight:500;font-size:14px;">${t.name}</div>
+        <div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">Rôle : ${t.role === 'admin' ? 'Administrateur' : 'Membre'}</div>
+      </div>
+      ${t.role === 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="inviteToTeam('${t.id}','${t.name}')">Inviter</button>` : ''}`;
+    list.appendChild(row);
+  });
+}
+
+async function createTeam() {
+  const input = document.getElementById('new-team-input');
+  const name = input.value.trim();
+  if (!name) return;
+  await _createTeam(name);
+  input.value = '';
+  renderTeamChips();
+}
+
+async function createTeamFromPage() {
+  const input = document.getElementById('team-name-input');
+  const name = input.value.trim();
+  if (!name) return;
+  await _createTeam(name);
+  input.value = '';
+  await loadTeams();
+  await loadTeamsPage();
+}
+
+async function _createTeam(name) {
+  const { data: team, error } = await sb.from('teams')
+    .insert({ name, created_by: currentUser.id }).select().single();
+  if (error) { toast(error.message, true); return; }
+  // S'ajouter comme admin
+  await sb.from('team_members').insert({ team_id: team.id, user_id: currentUser.id, role: 'admin' });
+  userTeams.push({ ...team, role: 'admin' });
+  toast(`Équipe "${name}" créée ✓`);
+}
+
+async function inviteToTeam(teamId, teamName) {
+  const email = prompt(`Email de la personne à inviter dans "${teamName}" :`);
+  if (!email) return;
+  // Chercher l'utilisateur par email via profiles
+  const { data: profile } = await sb.from('profiles')
+    .select('id').eq('id',
+      (await sb.auth.admin?.getUserByEmail?.(email))?.data?.user?.id || ''
+    ).single();
+  if (!profile) {
+    toast('Utilisateur non trouvé. Il doit d\'abord créer un compte.', true);
+    return;
+  }
+  const { error } = await sb.from('team_members').insert({ team_id: teamId, user_id: profile.id });
+  if (error) toast(error.message, true);
+  else toast(`${email} ajouté à l'équipe ✓`);
+}
+
+// ─────────────────────────────────────────
+// INIT UTILISATEUR
+// ─────────────────────────────────────────
+function initUserUI(user) {
+  const name = user.user_metadata?.display_name || user.email?.split('@')[0] || 'Utilisateur';
+  document.getElementById('sidebar-name').textContent = name;
+  document.getElementById('sidebar-email').textContent = user.email;
+  document.getElementById('sidebar-avatar').textContent = initials(name);
+}
+
+// ─────────────────────────────────────────
+// BOOTSTRAP — point d'entrée
+// ─────────────────────────────────────────
+sb.auth.onAuthStateChange(async (event, session) => {
+  const loader = document.getElementById('loader');
+  const loginScreen = document.getElementById('screen-login');
+  const appEl = document.getElementById('app');
+
+  if (session?.user) {
+    currentUser = session.user;
+    loginScreen.classList.add('hidden');
+    appEl.classList.add('visible');
+    initUserUI(currentUser);
+    await loadAll();
+    showPage('dashboard');
+    loader.style.opacity = '0';
+    setTimeout(() => loader.style.display = 'none', 400);
+  } else {
+    currentUser = null;
+    appEl.classList.remove('visible');
+    loginScreen.classList.remove('hidden');
+    loader.style.opacity = '0';
+    setTimeout(() => loader.style.display = 'none', 400);
+  }
+});
+</script>
+</body>
+</html>

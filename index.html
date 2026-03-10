@@ -1356,8 +1356,23 @@ async function buildSourceFilters(w) {
     if (f.keywords && f.keywords.length) feedKeywords[f.id] = f.keywords.map(k => k.toLowerCase().trim());
   });
 
-  bar.innerHTML = `<span class="filter-label">Source :</span>
-    <div class="filter-chip active" onclick="filterSource(this, null)">Toutes</div>`;
+  // Tout construire via DOM pour ne pas casser les onclick
+  bar.innerHTML = '';
+
+  // Source label
+  const srcLabel = document.createElement('span');
+  srcLabel.className = 'filter-label';
+  srcLabel.textContent = 'Source :';
+  bar.appendChild(srcLabel);
+
+  // Chip Toutes
+  const allChip = document.createElement('div');
+  allChip.className = 'filter-chip active';
+  allChip.textContent = 'Toutes';
+  allChip.onclick = () => filterSource(allChip, null);
+  bar.appendChild(allChip);
+
+  // Chip par source
   (feeds || []).forEach(f => {
     const chip = document.createElement('div');
     chip.className = 'filter-chip';
@@ -1365,20 +1380,41 @@ async function buildSourceFilters(w) {
     chip.onclick = () => filterSource(chip, f.id);
     bar.appendChild(chip);
   });
-  // Toggle mots-clés (uniquement si au moins un feed a des keywords)
-  const hasKeywords = Object.keys(feedKeywords).length > 0;
-  const kwToggle = hasKeywords ? `<div class="filter-sep"></div>
-    <div class="filter-chip kw-toggle" id="kw-toggle-chip" onclick="toggleKeywordFilter(this)" title="Afficher uniquement les articles contenant vos mots-clés">
-      <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M1 3h10M3 6h6M5 9h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-      Mots-clés
-    </div>` : '';
 
-  bar.innerHTML += `<div class="filter-sep"></div>
-    <span class="filter-label">Période :</span>
-    <div class="filter-chip active" onclick="filterPeriod(this,7)">7 jours</div>
-    <div class="filter-chip" onclick="filterPeriod(this,30)">30 jours</div>
-    <div class="filter-chip" onclick="filterPeriod(this,90)">3 mois</div>
-    <div class="filter-chip" onclick="filterPeriod(this,0)">Tout</div>${kwToggle}`;
+  // Séparateur
+  const sep1 = document.createElement('div');
+  sep1.className = 'filter-sep';
+  bar.appendChild(sep1);
+
+  // Période label
+  const perLabel = document.createElement('span');
+  perLabel.className = 'filter-label';
+  perLabel.textContent = 'Période :';
+  bar.appendChild(perLabel);
+
+  // Chips période
+  [['7 jours', 7], ['30 jours', 30], ['3 mois', 90], ['Tout', 0]].forEach(([label, days], i) => {
+    const chip = document.createElement('div');
+    chip.className = 'filter-chip' + (i === 0 ? ' active' : '');
+    chip.textContent = label;
+    chip.onclick = () => filterPeriod(chip, days);
+    bar.appendChild(chip);
+  });
+
+  // Toggle mots-clés (uniquement si au moins un feed a des keywords)
+  if (Object.keys(feedKeywords).length > 0) {
+    const sep2 = document.createElement('div');
+    sep2.className = 'filter-sep';
+    bar.appendChild(sep2);
+
+    const kwChip = document.createElement('div');
+    kwChip.className = 'filter-chip kw-toggle';
+    kwChip.id = 'kw-toggle-chip';
+    kwChip.title = 'Afficher uniquement les articles contenant vos mots-clés';
+    kwChip.innerHTML = `<svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M1 3h10M3 6h6M5 9h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg> Mots-clés`;
+    kwChip.onclick = () => toggleKeywordFilter(kwChip);
+    bar.appendChild(kwChip);
+  }
 }
 
 async function fetchArticles() {
@@ -1461,8 +1497,15 @@ function renderArticles(articles) {
 }
 
 function filterSource(el, feedId) {
-  document.querySelectorAll('#filter-bar .filter-chip').forEach(c => c.classList.remove('active'));
+  // Ne pas toucher au chip mots-clés
+  document.querySelectorAll('#filter-bar .filter-chip:not(.kw-toggle)').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
+  // Remettre le chip période actif
+  document.querySelectorAll('#filter-bar .filter-chip').forEach(c => {
+    if (c.textContent.trim() === (activePeriod === 0 ? 'Tout' : activePeriod === 7 ? '7 jours' : activePeriod === 30 ? '30 jours' : '3 mois')) {
+      c.classList.add('active');
+    }
+  });
   activeFeedFilter = feedId;
   fetchArticles();
 }

@@ -809,16 +809,7 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
         <div class="filter-chip" onclick="filterPeriod(this, 30)">30j</div>
         <div class="filter-chip" onclick="filterPeriod(this, 90)">3 mois</div>
         <div class="filter-chip" onclick="filterPeriod(this, 0)">Tout</div>
-        <div class="filter-sep"></div>
-        <span class="filter-label">Tri :</span>
-        <div class="filter-chip active" id="sort-date" onclick="setSort('date')">
-          <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M2 8l4 3 4-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Date
-        </div>
-        <div class="filter-chip" id="sort-source" onclick="setSort('source')">
-          <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M1 3h10M1 6h7M1 9h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-          Source
-        </div>
+
       </div>
       <div id="kw-filter-info" style="display:none;font-size:12px;color:var(--ink-faint);padding:4px 28px;background:var(--navy-soft);border-bottom:1px solid var(--border);"></div>
       <div class="articles-list" id="articles-list" style="flex:1;overflow-y:auto;"></div>
@@ -1418,10 +1409,6 @@ async function openWatchlist(w) {
       <input type="text" placeholder="Rechercher…" oninput="searchArticles(this.value)">
     </div>
     ${actionBtns}
-    <button class="btn btn-ghost btn-sm" onclick="markAllRead()" title="Marquer tous les articles visibles comme lus">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 7l3.5 3.5L12 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Tout lu
-    </button>
     <button class="btn btn-ghost btn-sm" onclick="showPage('dashboard')">← Retour</button>`;
 
   // Sidebar actif
@@ -1523,6 +1510,42 @@ async function buildSourceFilters(w) {
       bar.appendChild(chip);
     });
   }
+
+  // Tri
+  const sepTri = document.createElement('div');
+  sepTri.className = 'filter-sep';
+  bar.appendChild(sepTri);
+
+  const triLabel = document.createElement('span');
+  triLabel.className = 'filter-label';
+  triLabel.textContent = 'Tri :';
+  bar.appendChild(triLabel);
+
+  const sortDateChip = document.createElement('div');
+  sortDateChip.id = 'sort-date';
+  sortDateChip.className = 'filter-chip' + (sortOrder === 'date' || sortOrder === 'both' ? ' active' : '');
+  sortDateChip.innerHTML = '<svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M2 8l4 3 4-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Date';
+  sortDateChip.onclick = () => setSort('date');
+  bar.appendChild(sortDateChip);
+
+  const sortSrcChip = document.createElement('div');
+  sortSrcChip.id = 'sort-source';
+  sortSrcChip.className = 'filter-chip' + (sortOrder === 'source' || sortOrder === 'both' ? ' active' : '');
+  sortSrcChip.innerHTML = '<svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M1 3h10M1 6h7M1 9h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg> Source';
+  sortSrcChip.onclick = () => setSort('source');
+  bar.appendChild(sortSrcChip);
+
+  // Tout lu
+  const sepLu = document.createElement('div');
+  sepLu.className = 'filter-sep';
+  bar.appendChild(sepLu);
+
+  const toutLuBtn = document.createElement('div');
+  toutLuBtn.className = 'filter-chip';
+  toutLuBtn.style.cssText = 'color:var(--navy);border-color:var(--navy);';
+  toutLuBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 13 13" fill="none"><path d="M1 7l3.5 3.5L12 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Tout lu';
+  toutLuBtn.onclick = () => markAllRead();
+  bar.appendChild(toutLuBtn);
 }
 
 const PAGE_SIZE = 200;

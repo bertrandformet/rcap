@@ -1464,25 +1464,58 @@ async function createWatchlist() {
 // ─────────────────────────────────────────
 async function loadTeamsPage() {
   const list = document.getElementById('teams-list');
-  list.innerHTML = '';
+  list.innerHTML = '<p style="color:var(--ink-faint);font-size:12px;">Chargement…</p>';
   if (userTeams.length === 0) {
-    list.innerHTML = '<p style="color:var(--ink-faint);font-size:13px;margin-bottom:16px;">Vous n\'êtes membre d\'aucune équipe pour l\'instant.</p>';
+    list.innerHTML = '<p style="color:var(--ink-faint);font-size:13px;">Vous n\'avez pas encore d\'équipe.</p>';
     return;
   }
-  userTeams.forEach(t => {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border-soft);';
-    row.innerHTML = `
-      <div>
-        <div style="font-weight:500;font-size:14px;">${t.name}</div>
-        <div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">Rôle : ${t.role === 'admin' ? 'Administrateur' : 'Membre'}</div>
+  list.innerHTML = '';
+  for (const t of userTeams) {
+    const members = await sbFetch(
+      `team_members?team_id=eq.${t.id}&select=role,user_id,profiles(display_name,email)`
+    ).catch(() => []);
+
+    const block = document.createElement('div');
+    block.style.cssText = 'margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid var(--border);';
+
+    // En-tête
+    block.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div>
+          <div style="font-weight:600;font-size:15px;">${t.name}</div>
+          <div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">Votre rôle : ${t.role === 'admin' ? 'Administrateur' : 'Membre'} — ${members.length} membre${members.length > 1 ? 's' : ''}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          ${t.role === 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="inviteToTeam('${t.id}','${t.name}')">+ Inviter</button>` : ''}
+          ${t.role === 'admin' ? `<button class="btn btn-danger btn-sm" onclick="deleteTeam('${t.id}','${t.name}')">Supprimer</button>` : ''}
+        </div>
       </div>
-      <div style="display:flex;gap:6px;">
-        ${t.role === 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="inviteToTeam('${t.id}','${t.name}')">Inviter</button>` : ''}
-        ${t.role === 'admin' ? `<button class="btn btn-danger btn-sm" onclick="deleteTeam('${t.id}','${t.name}')">Supprimer</button>` : ''}
-      </div>`;
-    list.appendChild(row);
-  });
+      <div id="members-${t.id}" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;"></div>`;
+
+    list.appendChild(block);
+
+    const membersList = document.getElementById(`members-${t.id}`);
+    members.forEach((m, i) => {
+      const name = m.profiles?.display_name || m.profiles?.email?.split('@')[0] || '—';
+      const email = m.profiles?.email || '';
+      const isMe = m.user_id === currentUser.id;
+      const row = document.createElement('div');
+      row.style.cssText = `display:flex;align-items:center;justify-content:space-between;padding:10px 14px;${i < members.length-1 ? 'border-bottom:1px solid var(--border-soft);' : ''}`;
+      row.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:30px;height:30px;border-radius:50%;background:var(--navy);color:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">${(name[0]||'?').toUpperCase()}</div>
+          <div>
+            <div style="font-size:13px;font-weight:500;">${name}${isMe ? ' <span style="color:var(--ink-faint);font-weight:400;">(moi)</span>' : ''}</div>
+            <div style="font-size:11px;color:var(--ink-faint);">${email}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:11px;color:var(--ink-faint);">${m.role === 'admin' ? 'Admin' : 'Membre'}</span>
+          ${t.role === 'admin' && !isMe ? `<button class="btn btn-danger btn-sm" style="padding:3px 9px;" onclick="removeMember('${t.id}','${m.user_id}','${name}')">Retirer</button>` : ''}
+        </div>`;
+      membersList.appendChild(row);
+    });
+  }
 }
 
 async function createTeam() {

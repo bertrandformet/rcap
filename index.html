@@ -1571,11 +1571,57 @@ async function _createTeam(name) {
 
 
 
+async function sendEmailInvite() {
+  const email = document.getElementById('invite-email-input').value.trim();
+  const teamId = document.getElementById('invite-team-id').value;
+  const status = document.getElementById('invite-email-status');
+  if (!email || !email.includes('@')) {
+    status.style.color = 'var(--danger)';
+    status.textContent = 'Entrez un email valide.';
+    return;
+  }
+  status.style.color = 'var(--ink-faint)';
+  status.textContent = 'Envoi en cours…';
+
+  // Stocker l'invitation en attente dans une table dédiée
+  const { error } = await sb.from('team_invitations').insert({
+    team_id: teamId,
+    email: email.toLowerCase(),
+    invited_by: currentUser.id
+  }).select();
+
+  if (error && error.code !== '23505') {
+    status.style.color = 'var(--danger)';
+    status.textContent = error.message;
+    return;
+  }
+
+  // Envoyer l'invitation via Supabase Auth
+  const { error: authError } = await sb.auth.signInWithOtp({
+    email: email.toLowerCase(),
+    options: {
+      emailRedirectTo: 'https://bfbf-test.github.io/rcap/',
+      data: { invited_to_team: teamId }
+    }
+  });
+
+  if (authError) {
+    status.style.color = 'var(--danger)';
+    status.textContent = authError.message;
+  } else {
+    status.style.color = 'var(--success, #16a34a)';
+    status.textContent = `Invitation envoyée à ${email} ✓`;
+    document.getElementById('invite-email-input').value = '';
+  }
+}
+
 async function inviteToTeam(teamId, teamName) {
   document.getElementById('modal-invite-title').textContent = `Inviter dans "${teamName}"`;
   document.getElementById('invite-team-id').value = teamId;
   document.getElementById('invite-search-input').value = '';
   document.getElementById('invite-results').innerHTML = '';
+  document.getElementById('invite-email-input').value = '';
+  document.getElementById('invite-email-status').textContent = '';
   document.getElementById('modal-invite').classList.remove('hidden');
   setTimeout(() => document.getElementById('invite-search-input').focus(), 100);
 }
@@ -2219,13 +2265,26 @@ sb.auth.onAuthStateChange(async (event, session) => {
   <div class="modal" style="width:480px;">
     <button class="modal-close" onclick="closeModal('invite')">×</button>
     <div class="modal-title" id="modal-invite-title">Inviter dans l'équipe</div>
-    <div class="modal-desc">Recherchez un collègue par nom ou email.</div>
+    <div class="modal-desc">Recherchez un collègue déjà inscrit, ou invitez quelqu'un par email.</div>
     <input type="hidden" id="invite-team-id">
-    <div class="search-box" style="max-width:100%;margin-bottom:12px;">
+
+    <div style="font-size:11px;font-weight:600;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Membres existants</div>
+    <div class="search-box" style="max-width:100%;margin-bottom:6px;">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 9.5L12.5 12.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-      <input type="text" id="invite-search-input" placeholder="Nom ou email…" oninput="searchUsersToInvite()" style="width:100%;">
+      <input type="text" id="invite-search-input" placeholder="Rechercher par nom ou email…" oninput="searchUsersToInvite()" style="width:100%;">
     </div>
-    <div id="invite-results" style="min-height:60px;max-height:260px;overflow-y:auto;"></div>
+    <div id="invite-results" style="min-height:40px;max-height:200px;overflow-y:auto;margin-bottom:20px;"></div>
+
+    <div style="font-size:11px;font-weight:600;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Inviter par email</div>
+    <div style="font-size:12px;color:var(--ink-faint);margin-bottom:10px;">La personne recevra un email pour créer son compte et rejoindre l'équipe.</div>
+    <div style="display:flex;gap:8px;">
+      <input type="email" id="invite-email-input" placeholder="prenom.nom@reseau-canope.fr"
+        style="flex:1;padding:8px 11px;border:1.5px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;"
+        onkeydown="if(event.key==='Enter') sendEmailInvite()">
+      <button class="btn btn-primary btn-sm" onclick="sendEmailInvite()">Envoyer</button>
+    </div>
+    <div id="invite-email-status" style="font-size:12px;margin-top:8px;"></div>
+
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('invite')">Fermer</button>
     </div>

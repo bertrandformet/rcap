@@ -451,6 +451,58 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
 .filter-sep { width:1px; height:14px; background:var(--border); margin:0 3px; flex-shrink:0; }
 
 .articles-list { display:flex; flex-direction:column; gap:2px; padding:16px 28px; }
+
+/* Prévisualisation */
+.articles-area {
+  display:flex; flex:1; overflow:hidden; position:relative;
+}
+.articles-area .articles-list {
+  flex:1; overflow-y:auto; transition:all 0.25s;
+}
+#preview-panel {
+  width:0; overflow:hidden; transition:width 0.25s;
+  background:var(--white); border-left:1px solid var(--border);
+  display:flex; flex-direction:column;
+}
+#preview-panel.open {
+  width:420px;
+}
+@media (max-width:900px) {
+  #preview-panel.open {
+    position:fixed; top:53px; right:0; bottom:0; width:100% !important; z-index:200;
+  }
+}
+.preview-header {
+  display:flex; align-items:flex-start; gap:10px;
+  padding:16px 18px 12px; border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.preview-title {
+  flex:1; font-family:"Source Serif 4",serif; font-size:15px; font-weight:600;
+  line-height:1.4; cursor:pointer; color:var(--navy);
+}
+.preview-title:hover { text-decoration:underline; }
+.preview-close {
+  width:24px; height:24px; display:flex; align-items:center; justify-content:center;
+  border-radius:4px; cursor:pointer; color:var(--ink-faint); font-size:18px; flex-shrink:0;
+}
+.preview-close:hover { background:var(--surface); color:var(--ink); }
+.preview-meta {
+  padding:8px 18px; font-size:11px; color:var(--ink-faint);
+  border-bottom:1px solid var(--border-soft); flex-shrink:0;
+  display:flex; gap:12px; flex-wrap:wrap;
+}
+.preview-body {
+  flex:1; overflow-y:auto; padding:16px 18px;
+}
+.preview-body iframe {
+  width:100%; height:100%; border:none; border-radius:4px;
+}
+.preview-desc {
+  font-size:14px; line-height:1.7; color:var(--ink); font-family:"Source Serif 4",serif;
+}
+.preview-open-btn {
+  padding:12px 18px; border-top:1px solid var(--border); flex-shrink:0;
+}
 .article-item {
   background:var(--white); border:1px solid var(--border);
   padding:14px 16px; display:grid; grid-template-columns:auto 1fr auto;
@@ -481,6 +533,7 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
 }
 .article-date { font-size:11px; color:var(--ink-faint); white-space:nowrap; text-align:right; padding-top:2px; }
 .article-item.is-read { background:var(--surface); }
+.article-item.preview-active { border-color:var(--navy); background:var(--navy-soft); }
 .card-unread-badge {
   background:var(--orange); color:white;
   font-size:11px; font-weight:700; line-height:1;
@@ -812,7 +865,23 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
 
       </div>
       <div id="kw-filter-info" style="display:none;font-size:12px;color:var(--ink-faint);padding:4px 28px;background:var(--navy-soft);border-bottom:1px solid var(--border);"></div>
-      <div class="articles-list" id="articles-list" style="flex:1;overflow-y:auto;"></div>
+      <div class="articles-area">
+        <div class="articles-list" id="articles-list"></div>
+        <div id="preview-panel">
+          <div class="preview-header">
+            <div class="preview-title" id="preview-title" onclick="window.open(previewUrl,'_blank')"></div>
+            <div class="preview-close" onclick="closePreview()">×</div>
+          </div>
+          <div class="preview-meta" id="preview-meta"></div>
+          <div class="preview-body" id="preview-body"></div>
+          <div class="preview-open-btn">
+            <a id="preview-link" href="#" target="_blank" class="btn btn-accent btn-sm" style="display:inline-flex;gap:6px;align-items:center;">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 10L10 2M5 2h5v5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Ouvrir l'article
+            </a>
+          </div>
+        </div>
+      </div>
 
       <div class="articles-footer">
         <div class="selection-info" id="selection-info">0 article sélectionné</div>
@@ -1064,6 +1133,7 @@ let feedKeywords     = {};     // feed_id → [mots-clés]
 let activeKws        = new Set(); // mots-clés actifs (chips sélectionnés)
 let showUnreadOnly   = false;  // filtre non lus
 let sortOrder        = "date";  // "date" | "source"
+let previewUrl       = "";     // url article en prévisualisation
 
 const COLORS = ['#1b3a6b','#f47920','#2a5298','#c95e08','#16a34a','#7c3aed','#0891b2','#dc2626'];
 
@@ -1387,6 +1457,7 @@ async function openWatchlist(w) {
   allArticles = [];
   articlesOffset = 0;
   articlesHasMore = false;
+  closePreview?.();
   activeKws = new Set();
   showUnreadOnly = false;
   sortOrder = 'date';
@@ -1637,7 +1708,7 @@ function renderArticlesAppend(articles) {
         <div class="article-date">${relativeDate(a.published_at)}</div>
         <div class="unread-dot"></div>
       </div>`;
-    item.querySelector('.article-title').onclick = () => markRead(a, item);
+    item.querySelector('.article-title').onclick = () => { markRead(a, item); openPreview(a); };
     list.insertBefore(item, document.getElementById('load-more-btn'));
   });
   updateSelectionInfo();
@@ -1732,7 +1803,7 @@ function renderArticles(articles) {
         <div class="article-date">${relativeDate(a.published_at)}</div>
         <div class="unread-dot"></div>
       </div>`;
-    item.querySelector('.article-title').onclick = () => markRead(a, item);
+    item.querySelector('.article-title').onclick = () => { markRead(a, item); openPreview(a); };
     list.appendChild(item);
   });
   updateSelectionInfo();
@@ -1774,6 +1845,49 @@ function toggleKeywordFilter(el, kw) {
   renderArticles(allArticles);
 }
 
+function openPreview(a) {
+  previewUrl = a.url;
+  const panel = document.getElementById('preview-panel');
+  panel.classList.add('open');
+
+  // Titre cliquable
+  const titleEl = document.getElementById('preview-title');
+  titleEl.textContent = a.title || '(sans titre)';
+
+  // Meta
+  const src = a.feeds?.label || a.feeds?.url || '—';
+  const date = a.published_at ? new Date(a.published_at).toLocaleDateString('fr-FR', { day:'numeric', month:'long', year:'numeric' }) : '';
+  document.getElementById('preview-meta').innerHTML =
+    `<span>${src}</span>${a.rubrique ? `<span>${a.rubrique}</span>` : ''}<span>${date}</span>`;
+
+  // Lien
+  document.getElementById('preview-link').href = a.url;
+
+  // Corps : description de l'article
+  // (les sites bloquent quasi tous les iframes via X-Frame-Options,
+  //  indétectable en JS pur — on affiche le résumé + bouton d'ouverture)
+  const body = document.getElementById('preview-body');
+  body.innerHTML = '';
+  const desc = document.createElement('div');
+  desc.className = 'preview-desc';
+  desc.innerHTML = a.description
+    ? a.description
+    : '<p style="color:var(--ink-faint);font-style:italic;">Aucun résumé disponible pour cet article.</p>';
+  body.appendChild(desc);
+
+  // Mettre en évidence l'article actif
+  document.querySelectorAll('.article-item').forEach(i => i.classList.remove('preview-active'));
+  const active = document.querySelector(`.article-item[data-id="${a.id}"]`);
+  if (active) active.classList.add('preview-active');
+}
+
+function closePreview() {
+  document.getElementById('preview-panel').classList.remove('open');
+  document.getElementById('preview-body').innerHTML = '';
+  document.querySelectorAll('.article-item').forEach(i => i.classList.remove('preview-active'));
+  previewUrl = '';
+}
+
 async function markAllRead() {
   const unread = allArticles.filter(a => !(a.read_by || []).includes(currentUser.id));
   if (unread.length === 0) { toast('Tous les articles sont déjà lus'); return; }
@@ -1804,7 +1918,6 @@ async function markAllRead() {
 }
 
 async function markRead(a, item) {
-  window.open(a.url, '_blank');
   if ((a.read_by || []).includes(currentUser.id)) return;
   item.classList.add('is-read');
   const dot = item.querySelector('.unread-dot');

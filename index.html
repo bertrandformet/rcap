@@ -1110,13 +1110,22 @@ async function openWatchlist(w) {
 
   // Topbar
   document.getElementById('topbar-title').innerHTML = `<em>${w.name}</em>`;
+  const isOwner = currentWatchlist.owner_id === currentUser.id;
+  const isTeam  = currentWatchlist.scope === 'team';
+  let actionBtns = '';
+  if (isOwner) {
+    actionBtns += `<button class="btn btn-ghost btn-sm" onclick="openEditModal()">Modifier</button>`;
+    actionBtns += `<button class="btn btn-danger btn-sm" onclick="openDeleteModal()">Supprimer</button>`;
+  } else if (isTeam) {
+    actionBtns += `<button class="btn btn-ghost btn-sm" onclick="duplicateToPersonal()">Dupliquer en perso</button>`;
+    actionBtns += `<button class="btn btn-danger btn-sm" onclick="leaveTeamSpace()">Quitter</button>`;
+  }
   document.getElementById('topbar-actions').innerHTML = `
     <div class="search-box">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 9.5L12.5 12.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
       <input type="text" placeholder="Rechercher…" oninput="searchArticles(this.value)">
     </div>
-    <button class="btn btn-ghost btn-sm" onclick="openEditModal()">Modifier</button>
-    <button class="btn btn-danger btn-sm" onclick="openDeleteModal()">Supprimer</button>
+    ${actionBtns}
     <button class="btn btn-ghost btn-sm" onclick="showPage('dashboard')">← Retour</button>`;
 
   // Sidebar actif
@@ -1582,12 +1591,52 @@ async function confirmDelete() {
 }
 
 let editFeedCount = 0;
-let editExistingFeeds = []; // flux déjà en base
+let editExistingFeeds = [];
+let editScope = 'personal';
+let editSelectedTeamId = null;
+
+function selectEditScope(scope) {
+  editScope = scope;
+  document.getElementById('edit-scope-perso').classList.toggle('selected', scope === 'personal');
+  document.getElementById('edit-scope-team').classList.toggle('selected', scope === 'team');
+  document.getElementById('edit-team-selector').classList.toggle('visible', scope === 'team');
+}
+
+function renderEditTeamChips() {
+  const container = document.getElementById('edit-team-chips');
+  container.innerHTML = '';
+  userTeams.forEach(t => {
+    const chip = document.createElement('div');
+    chip.className = 'team-chip' + (t.id === editSelectedTeamId ? ' selected' : '');
+    chip.textContent = t.name;
+    chip.onclick = () => { editSelectedTeamId = t.id; renderEditTeamChips(); };
+    container.appendChild(chip);
+  });
+}
 
 async function openEditModal() {
   watchlistToEdit = currentWatchlist;
   document.getElementById('edit-name').value = watchlistToEdit.name || '';
   document.getElementById('edit-desc').value = watchlistToEdit.description || '';
+
+  // Initialiser la portée
+  editScope = watchlistToEdit.scope || 'personal';
+  editSelectedTeamId = watchlistToEdit.team_id || null;
+  document.getElementById('edit-scope-perso').classList.toggle('selected', editScope === 'personal');
+  document.getElementById('edit-scope-team').classList.toggle('selected', editScope === 'team');
+  document.getElementById('edit-team-selector').classList.toggle('visible', editScope === 'team');
+  renderEditTeamChips();
+  // Si c'est déjà un espace d'équipe, on ne peut pas le repasser en perso
+  const scopeSection = document.querySelector('#modal-edit .scope-grid').parentElement;
+  if (watchlistToEdit.scope === 'team') {
+    document.getElementById('edit-scope-perso').style.opacity = '0.4';
+    document.getElementById('edit-scope-perso').style.pointerEvents = 'none';
+    document.getElementById('edit-scope-perso').title = 'Impossible de repasser en perso — dupliquez plutôt l'espace';
+  } else {
+    document.getElementById('edit-scope-perso').style.opacity = '';
+    document.getElementById('edit-scope-perso').style.pointerEvents = '';
+    document.getElementById('edit-scope-perso').title = '';
+  }
 
   // Charger les flux existants
   editFeedCount = 0;
@@ -1657,12 +1706,17 @@ async function confirmEdit() {
   const name = document.getElementById('edit-name').value.trim();
   if (!name) { toast('Le nom est obligatoire', true); return; }
   try {
+    if (editScope === 'team' && !editSelectedTeamId) {
+      toast('Sélectionnez une équipe', true); return;
+    }
     // Mettre à jour la watchlist
     await sbFetch(`watchlists?id=eq.${watchlistToEdit.id}`, {
       method: 'PATCH',
       body: JSON.stringify({
         name,
-        description: document.getElementById('edit-desc').value.trim() || null
+        description: document.getElementById('edit-desc').value.trim() || null,
+        scope: editScope,
+        team_id: editScope === 'team' ? editSelectedTeamId : null,
       })
     });
 
@@ -1862,6 +1916,62 @@ async function savePassword() {
   document.getElementById('account-pw2').value = '';
 }
 
+
+// ─────────────────────────────────────────
+// ACTIONS MEMBRES (non-owner)
+// ─────────────────────────────────────────
+async function duplicateToPersonal() {
+  const w = currentWatchlist;
+  try {
+    // Créer une copie personnelle
+    const wlArr = await sbFetch('watchlists', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: w.name + ' (copie)',
+        description: w.description || null,
+        owner_id: currentUser.id,
+        scope: 'personal',
+        team_id: null,
+        frequency: w.frequency || '3x_day',
+      })
+    });
+    const newWl = Array.isArray(wlArr) ? wlArr[0] : wlArr;
+    if (!newWl?.id) throw new Error('Erreur création');
+
+    // Copier les flux
+    const feeds = await sbFetch(`feeds?watchlist_id=eq.${w.id}&select=url,label,keywords`).catch(() => []);
+    if (feeds.length > 0) {
+      await sbFetch('feeds', {
+        method: 'POST',
+        body: JSON.stringify(feeds.map(f => ({
+          watchlist_id: newWl.id, url: f.url, label: f.label, keywords: f.keywords
+        })))
+      });
+    }
+
+    toast(`Espace "${w.name}" dupliqué en perso ✓`);
+    await loadAll();
+    showPage('dashboard');
+  } catch(e) {
+    toast(e.message, true);
+  }
+}
+
+async function leaveTeamSpace() {
+  const w = currentWatchlist;
+  if (!confirm(`Quitter l'équipe associée à "${w.name}" ? Vous n'aurez plus accès à cet espace.`)) return;
+  try {
+    await sbFetch(`team_members?team_id=eq.${w.team_id}&user_id=eq.${currentUser.id}`, {
+      method: 'DELETE'
+    });
+    toast('Vous avez quitté cet espace équipe');
+    await loadAll();
+    showPage('dashboard');
+  } catch(e) {
+    toast(e.message, true);
+  }
+}
+
 // ─────────────────────────────────────────
 // BOOTSTRAP — point d'entrée
 // ─────────────────────────────────────────
@@ -1940,6 +2050,26 @@ sb.auth.onAuthStateChange(async (event, session) => {
     <div class="form-group">
       <label>Description</label>
       <textarea id="edit-desc" style="min-height:56px;"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label>Portée</label>
+      <div class="scope-grid" style="margin-bottom:8px;">
+        <div class="scope-opt perso" id="edit-scope-perso" onclick="selectEditScope('personal')">
+          <div class="scope-icon">👤</div>
+          <div class="scope-label">Personnel</div>
+          <div class="scope-desc">Visible par moi uniquement</div>
+        </div>
+        <div class="scope-opt team" id="edit-scope-team" onclick="selectEditScope('team')">
+          <div class="scope-icon">👥</div>
+          <div class="scope-label">Équipe</div>
+          <div class="scope-desc">Partagé avec mon équipe</div>
+        </div>
+      </div>
+      <div class="team-selector" id="edit-team-selector">
+        <label style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-light);font-weight:500;">Choisir une équipe</label>
+        <div class="team-chips" id="edit-team-chips"></div>
+      </div>
     </div>
 
     <div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-light);font-weight:500;margin-bottom:10px;">Flux RSS</div>

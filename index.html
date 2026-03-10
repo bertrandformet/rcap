@@ -893,9 +893,17 @@ async function doLogout() {
 // NAVIGATION
 // ─────────────────────────────────────────
 function showPage(name) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.remove('active');
+    p.style.display = 'none';
+  });
   const p = document.getElementById('page-' + name);
-  if (p) p.classList.add('active');
+  if (p) {
+    p.classList.add('active');
+    // Restaurer le display correct selon la page
+    if (name === 'articles') p.style.display = 'flex';
+    else p.style.display = '';
+  }
 
   // Topbar
   const titles = {
@@ -1552,17 +1560,83 @@ async function confirmDelete() {
   }
 }
 
-function openEditModal() {
+let editFeedCount = 0;
+let editExistingFeeds = []; // flux déjà en base
+
+async function openEditModal() {
   watchlistToEdit = currentWatchlist;
   document.getElementById('edit-name').value = watchlistToEdit.name || '';
   document.getElementById('edit-desc').value = watchlistToEdit.description || '';
+
+  // Charger les flux existants
+  editFeedCount = 0;
+  const container = document.getElementById('edit-feeds-container');
+  container.innerHTML = '';
+  editExistingFeeds = await sbFetch(`feeds?watchlist_id=eq.${watchlistToEdit.id}&select=id,url,label,keywords`).catch(() => []);
+  editExistingFeeds.forEach(f => addEditFeedBlock(f));
+  if (editExistingFeeds.length === 0) addEditFeedBlock();
+
   document.getElementById('modal-edit').classList.remove('hidden');
+}
+
+function addEditFeedBlock(feed = null) {
+  editFeedCount++;
+  const n = 'ef' + editFeedCount;
+  const container = document.getElementById('edit-feeds-container');
+  const block = document.createElement('div');
+  block.className = 'feed-block';
+  block.id = `edit-feed-block-${n}`;
+  block.dataset.feedId = feed?.id || '';
+  const keywords = (feed?.keywords || []).map(k =>
+    `<span class="kw-tag">${k} <button class="kw-remove" onclick="this.parentElement.remove()">×</button></span>`
+  ).join('');
+  block.innerHTML = `
+    <div class="feed-block-header">
+      <span class="feed-block-title">${feed ? feed.label || feed.url : 'Nouveau flux'}</span>
+      <button class="feed-remove" onclick="document.getElementById('edit-feed-block-${n}').remove()">×</button>
+    </div>
+    <div class="form-group">
+      <label>URL du flux RSS *</label>
+      <input type="url" id="efu-${n}" value="${feed?.url || ''}" placeholder="https://example.com/feed.xml" style="font-size:13px;">
+    </div>
+    <div class="form-group">
+      <label>Nom affiché</label>
+      <input type="text" id="efl-${n}" value="${feed?.label || ''}" placeholder="Ex : Légifrance" style="font-size:13px;">
+    </div>
+    <div class="form-group" style="margin:0;">
+      <label>Mots-clés <span style="font-style:italic;text-transform:none;letter-spacing:0;color:var(--ink-faint)">(Entrée pour valider)</span></label>
+      <div class="keywords-input" id="efk-${n}" onclick="this.querySelector('.kw-input').focus()">
+        ${keywords}
+        <input class="kw-input" id="efki-${n}" type="text" placeholder="Ajouter un mot-clé…"
+          onkeydown="addEditKeyword(event,'${n}')">
+      </div>
+    </div>`;
+  container.appendChild(block);
+}
+
+function addEditKeyword(e, n) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const input = document.getElementById(`efki-${n}`);
+  const val = input.value.trim();
+  if (!val) return;
+  const tag = document.createElement('span');
+  tag.className = 'kw-tag';
+  tag.innerHTML = `${val} <button class="kw-remove" onclick="this.parentElement.remove()">×</button>`;
+  document.getElementById(`efk-${n}`).insertBefore(tag, input);
+  input.value = '';
+}
+
+function getEditKeywords(n) {
+  return Array.from(document.querySelectorAll(`#efk-${n} .kw-tag`))
+    .map(t => t.childNodes[0].textContent.trim()).filter(Boolean);
 }
 
 async function confirmEdit() {
   const name = document.getElementById('edit-name').value.trim();
   if (!name) { toast('Le nom est obligatoire', true); return; }
   try {
+    // Mettre à jour la watchlist
     await sbFetch(`watchlists?id=eq.${watchlistToEdit.id}`, {
       method: 'PATCH',
       body: JSON.stringify({
@@ -1570,9 +1644,44 @@ async function confirmEdit() {
         description: document.getElementById('edit-desc').value.trim() || null
       })
     });
+
+    // Mettre à jour / créer les flux
+    const blocks = document.querySelectorAll('#edit-feeds-container .feed-block');
+    for (const block of blocks) {
+      const n = block.id.replace('edit-feed-block-', '');
+      const url = document.getElementById(`efu-${n}`)?.value.trim();
+      if (!url) continue;
+      const label = document.getElementById(`efl-${n}`)?.value.trim() || url;
+      const keywords = getEditKeywords(n);
+      const feedId = block.dataset.feedId;
+
+      if (feedId) {
+        // Mettre à jour existant
+        await sbFetch(`feeds?id=eq.${feedId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ url, label, keywords })
+        });
+      } else {
+        // Nouveau flux
+        await sbFetch('feeds', {
+          method: 'POST',
+          body: JSON.stringify({ watchlist_id: watchlistToEdit.id, url, label, keywords })
+        });
+      }
+    }
+
+    // Supprimer les flux retirés (présents en base mais plus dans le DOM)
+    const keptIds = Array.from(document.querySelectorAll('#edit-feeds-container .feed-block'))
+      .map(b => b.dataset.feedId).filter(Boolean);
+    for (const f of editExistingFeeds) {
+      if (!keptIds.includes(f.id)) {
+        await sbFetch(`feeds?id=eq.${f.id}`, { method: 'DELETE' });
+      }
+    }
+
     toast('Espace mis à jour ✓');
     closeModal('edit');
-    currentWatchlist = { ...currentWatchlist, name, description: document.getElementById('edit-desc').value.trim() };
+    currentWatchlist = { ...currentWatchlist, name };
     document.getElementById('topbar-title').innerHTML = `<em>${name}</em>`;
     await loadAll();
   } catch(e) {
@@ -1675,18 +1784,27 @@ sb.auth.onAuthStateChange(async (event, session) => {
      MODAL : ÉDITER UN ESPACE
 ════════════════════════════════════════ -->
 <div class="modal-overlay hidden" id="modal-edit">
-  <div class="modal" style="width:560px;">
+  <div class="modal" style="width:620px;max-height:90vh;overflow-y:auto;">
     <button class="modal-close" onclick="closeModal('edit')">×</button>
     <div class="modal-title">Modifier l'espace</div>
-    <div class="modal-desc">Changez le nom ou la description de cet espace.</div>
+    <div class="modal-desc">Nom, description et sources RSS de cet espace.</div>
+
     <div class="form-group">
       <label>Nom *</label>
       <input id="edit-name" type="text">
     </div>
-    <div class="form-group" style="margin:0">
+    <div class="form-group">
       <label>Description</label>
-      <textarea id="edit-desc"></textarea>
+      <textarea id="edit-desc" style="min-height:56px;"></textarea>
     </div>
+
+    <div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-light);font-weight:500;margin-bottom:10px;">Flux RSS</div>
+    <div id="edit-feeds-container"></div>
+    <button class="add-feed-btn" onclick="addEditFeedBlock()" style="margin-bottom:16px;">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 2v9M2 6.5h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Ajouter un flux RSS
+    </button>
+
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('edit')">Annuler</button>
       <button class="btn btn-primary" onclick="confirmEdit()">Enregistrer</button>

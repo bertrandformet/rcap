@@ -847,6 +847,9 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
 const SUPABASE_URL  = 'https://rmoptpqbcmqxtijuaxbr.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJtb3B0cHFiY21xeHRpanVheGJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTAzNjEsImV4cCI6MjA4ODY2NjM2MX0.EFxmW4-EdKPi207T8mT6IriE-IA5Ct2X168l2Gawz2w';
 
+// Détecter un lien magique AVANT que le SDK ne consomme le hash
+const _ismagicLink = window.location.hash.includes('access_token');
+
 // ─────────────────────────────────────────
 // INIT SUPABASE
 // ─────────────────────────────────────────
@@ -2705,9 +2708,9 @@ sb.auth.onAuthStateChange(async (event, session) => {
     if (isFirstLoad) {
       loader.style.opacity = '0';
       setTimeout(() => loader.style.display = 'none', 400);
-      // Arrivée via lien magique (URL contient #access_token) -> definir un mot de passe
-      if (event === 'SIGNED_IN' && window.location.hash.includes('access_token')) {
-        window.location.hash = '';
+      // Arrivée via lien magique -> demander de définir un mot de passe
+      if (event === 'SIGNED_IN' && _ismagicLink) {
+        showPage('dashboard');
         showSetPasswordModal();
       } else {
         showPage('dashboard');

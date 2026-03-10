@@ -119,12 +119,34 @@ async function fetchFeed(feedUrl) {
 // Main
 // ─────────────────────────────────────────────
 async function main() {
-  console.log(`RCap fetch.js — ${new Date().toISOString()}`);
+  const now = new Date();
+  console.log(`RCap fetch.js — ${now.toISOString()}`);
 
-  // 1. Recuperer tous les feeds
-  const feeds = await sb('feeds?select=id,url,watchlist_id');
-  console.log(`${feeds.length} flux a traiter`);
-  if (feeds.length === 0) { console.log('Aucun flux configure.'); return; }
+  // Determiner le creneau d'execution (heure Paris UTC+1)
+  const hourParis = (now.getUTCHours() + 1) % 24;
+  const dayOfWeek = now.getUTCDay(); // 0=dim, 1=lun
+  const isMorning = hourParis < 12;    // execution 8h
+  const isMonday  = dayOfWeek === 1;
+  console.log(`Creneau : ${hourParis}h Paris — matin=${isMorning}, lundi=${isMonday}`);
+
+  // 1. Recuperer tous les feeds avec la frequence de la watchlist
+  const watchlists = await sb('watchlists?select=id,frequency');
+  const freqMap = {};
+  watchlists.forEach(w => { freqMap[w.id] = w.frequency || 'normale'; });
+
+  const allFeeds = await sb('feeds?select=id,url,watchlist_id,keywords');
+
+  // Filtrer selon la frequence
+  const feeds = allFeeds.filter(f => {
+    const freq = freqMap[f.watchlist_id] || 'normale';
+    if (freq === 'haute') return true;                  // toujours
+    if (freq === 'normale') return isMorning;           // 8h seulement
+    if (freq === 'basse') return isMorning && isMonday; // lundi 8h
+    return true;
+  });
+
+  console.log(`${allFeeds.length} flux total, ${feeds.length} a traiter ce creneau`);
+  if (feeds.length === 0) { console.log('Aucun flux a traiter pour ce creneau.'); return; }
 
   // 2. Recuperer les URLs deja en base
   const existing = await sb('articles?select=url');
@@ -139,8 +161,16 @@ async function main() {
     process.stdout.write(`  ${feed.url} ... `);
     const items = await fetchFeed(feed.url);
 
+    // Filtrage par mots-cles (si definis sur ce flux)
+    const kws = (feed.keywords || []).map(k => k.toLowerCase().trim()).filter(Boolean);
+    const matchesKeywords = (item) => {
+      if (kws.length === 0) return true; // pas de filtre = tout passe
+      const text = ((item.title || '') + ' ' + (item.description || '')).toLowerCase();
+      return kws.some(k => text.includes(k));
+    };
+
     const newItems = items
-      .filter(item => item.url && !existingUrls.has(item.url))
+      .filter(item => item.url && !existingUrls.has(item.url) && matchesKeywords(item))
       .map(item => ({
         watchlist_id: feed.watchlist_id,
         feed_id:      feed.id,
@@ -150,7 +180,9 @@ async function main() {
         published_at: item.published_at,
       }));
 
-    if (newItems.length === 0) { console.log('0 nouveau'); continue; }
+    const skipped = items.filter(i => i.url && !existingUrls.has(i.url) && !matchesKeywords(i)).length;
+    if (newItems.length === 0 && skipped === 0) { console.log('0 nouveau'); continue; }
+    if (newItems.length === 0 && skipped > 0) { console.log(`0 nouveau (${skipped} hors mots-cles)`); continue; }
 
     // Inserer par lots de 50
     const batchSize = 50;
@@ -175,11 +207,12 @@ async function main() {
       }
     }
 
+    const skippedInfo = skipped > 0 ? ` (${skipped} hors mots-cles)` : '';
     if (batchErrors > 0) {
       totalErrors++;
-      console.log(`${newItems.length} nouveaux (${batchErrors} erreur(s))`);
+      console.log(`${newItems.length} nouveaux${skippedInfo} (${batchErrors} erreur(s))`);
     } else {
-      console.log(`+${newItems.length} nouveaux`);
+      console.log(`+${newItems.length} nouveaux${skippedInfo}`);
     }
     totalNew += newItems.length;
   }

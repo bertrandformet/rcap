@@ -811,6 +811,17 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
         <div class="filter-chip" onclick="filterPeriod(this, 30)">30 jours</div>
         <div class="filter-chip" onclick="filterPeriod(this, 90)">3 mois</div>
         <div class="filter-chip" onclick="filterPeriod(this, 0)">Tout</div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-shrink:0;padding-left:12px;">
+          <span class="filter-label">Tri :</span>
+          <div class="filter-chip active" id="sort-date" onclick="setSort('date', this)">
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M2 8l4 3 4-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Date
+          </div>
+          <div class="filter-chip" id="sort-source" onclick="setSort('source', this)">
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M1 3h10M1 6h7M1 9h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            Source
+          </div>
+        </div>
       </div>
 
       <div id="kw-filter-info" style="display:none;font-size:12px;color:var(--ink-faint);padding:4px 28px;background:var(--navy-soft);border-bottom:1px solid var(--border);"></div>
@@ -1065,6 +1076,7 @@ let srcColors        = {};     // feed_id → couleur pour les dots sources
 let feedKeywords     = {};     // feed_id → [mots-clés]
 let activeKws        = new Set(); // mots-clés actifs (chips sélectionnés)
 let showUnreadOnly   = false;  // filtre non lus
+let sortOrder        = "date";  // "date" | "source"
 
 const COLORS = ['#1b3a6b','#f47920','#2a5298','#c95e08','#16a34a','#7c3aed','#0891b2','#dc2626'];
 
@@ -1390,6 +1402,7 @@ async function openWatchlist(w) {
   articlesHasMore = false;
   activeKws = new Set();
   showUnreadOnly = false;
+  sortOrder = "date";
 
   // Topbar
   document.getElementById('topbar-title').innerHTML = `<em>${w.name}</em>`;
@@ -1651,6 +1664,19 @@ function renderArticles(articles) {
     return;
   }
 
+  // Tri
+  if (sortOrder === 'source') {
+    articles.sort((a, b) => {
+      const sa = (a.feeds?.label || a.feeds?.url || '').toLowerCase();
+      const sb2 = (b.feeds?.label || b.feeds?.url || '').toLowerCase();
+      if (sa < sb2) return -1;
+      if (sa > sb2) return 1;
+      return new Date(b.published_at) - new Date(a.published_at);
+    });
+  } else {
+    articles.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+  }
+
   // Filtre non lus
   if (showUnreadOnly) {
     articles = articles.filter(a => !(a.read_by || []).includes(currentUser.id));
@@ -1763,6 +1789,13 @@ async function markRead(a, item) {
   }).catch(() => {});
   const idx = allArticles.findIndex(x => x.id === a.id);
   if (idx >= 0) allArticles[idx].read_by = newReadBy;
+}
+
+function setSort(order, el) {
+  sortOrder = order;
+  document.getElementById('sort-date').classList.toggle('active', order === 'date');
+  document.getElementById('sort-source').classList.toggle('active', order === 'source');
+  renderArticles(allArticles);
 }
 
 function toggleUnreadFilter(el) {

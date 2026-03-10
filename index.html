@@ -797,6 +797,7 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
         <div class="filter-chip" onclick="filterPeriod(this, 0)">Tout</div>
       </div>
 
+      <div id="kw-filter-info" style="display:none;font-size:12px;color:var(--ink-faint);padding:4px 28px;background:var(--navy-soft);border-bottom:1px solid var(--border);"></div>
       <div class="articles-list" id="articles-list" style="flex:1;overflow-y:auto;"></div>
 
       <div class="articles-footer">
@@ -998,7 +999,9 @@ let userTeams        = [];     // équipes de l'utilisateur
 let selectedTeamId   = null;   // équipe choisie dans le formulaire
 let currentScope     = 'personal';
 let feedCount        = 0;
-let srcColors        = {};     // url → couleur pour les dots sources
+let srcColors        = {};     // feed_id → couleur pour les dots sources
+let feedKeywords     = {};     // feed_id → [mots-clés]
+let kwFilterActive   = false;  // filtre mots-cles actif
 
 const COLORS = ['#1b3a6b','#f47920','#2a5298','#c95e08','#16a34a','#7c3aed','#0891b2','#dc2626'];
 
@@ -1310,6 +1313,7 @@ async function openWatchlist(w) {
   activeFeedFilter = null;
   activePeriod = 7;
   allArticles = [];
+  kwFilterActive = false;
 
   // Topbar
   document.getElementById('topbar-title').innerHTML = `<em>${w.name}</em>`;
@@ -1344,9 +1348,13 @@ async function openWatchlist(w) {
 
 async function buildSourceFilters(w) {
   const bar = document.getElementById('filter-bar');
-  const feeds = await sbFetch(`feeds?select=id,label,url&watchlist_id=eq.${w.id}`).catch(() => []);
+  const feeds = await sbFetch(`feeds?select=id,label,url,keywords&watchlist_id=eq.${w.id}`).catch(() => []);
   srcColors = {};
-  (feeds || []).forEach((f, i) => { srcColors[f.id] = COLORS[i % COLORS.length]; });
+  feedKeywords = {};
+  (feeds || []).forEach((f, i) => {
+    srcColors[f.id] = COLORS[i % COLORS.length];
+    if (f.keywords && f.keywords.length) feedKeywords[f.id] = f.keywords.map(k => k.toLowerCase().trim());
+  });
 
   bar.innerHTML = `<span class="filter-label">Source :</span>
     <div class="filter-chip active" onclick="filterSource(this, null)">Toutes</div>`;
@@ -1357,12 +1365,20 @@ async function buildSourceFilters(w) {
     chip.onclick = () => filterSource(chip, f.id);
     bar.appendChild(chip);
   });
+  // Toggle mots-clés (uniquement si au moins un feed a des keywords)
+  const hasKeywords = Object.keys(feedKeywords).length > 0;
+  const kwToggle = hasKeywords ? `<div class="filter-sep"></div>
+    <div class="filter-chip kw-toggle" id="kw-toggle-chip" onclick="toggleKeywordFilter(this)" title="Afficher uniquement les articles contenant vos mots-clés">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M1 3h10M3 6h6M5 9h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Mots-clés
+    </div>` : '';
+
   bar.innerHTML += `<div class="filter-sep"></div>
     <span class="filter-label">Période :</span>
     <div class="filter-chip active" onclick="filterPeriod(this,7)">7 jours</div>
     <div class="filter-chip" onclick="filterPeriod(this,30)">30 jours</div>
     <div class="filter-chip" onclick="filterPeriod(this,90)">3 mois</div>
-    <div class="filter-chip" onclick="filterPeriod(this,0)">Tout</div>`;
+    <div class="filter-chip" onclick="filterPeriod(this,0)">Tout</div>${kwToggle}`;
 }
 
 async function fetchArticles() {
@@ -1382,9 +1398,35 @@ async function fetchArticles() {
   renderArticles(allArticles);
 }
 
+function highlight(text, feedId) {
+  if (!text) return '';
+  const kws = feedKeywords[feedId] || [];
+  if (!kws.length) return text;
+  // Échapper les caractères regex spéciaux dans les mots-clés
+  const pattern = kws.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  return text.replace(new RegExp(`(${pattern})`, 'gi'),
+    '<mark style="background:#fff0b3;color:inherit;border-radius:2px;padding:0 1px;">$1</mark>');
+}
+
 function renderArticles(articles) {
   const list = document.getElementById('articles-list');
   list.innerHTML = '';
+
+  // Appliquer le filtre mots-clés si actif
+  if (kwFilterActive) {
+    const filtered = articles.filter(articleMatchesKeywords);
+    const hidden = articles.length - filtered.length;
+    articles = filtered;
+    // Afficher un indicateur du nb d'articles masqués
+    const info = document.getElementById('kw-filter-info');
+    if (info) {
+      info.textContent = hidden > 0 ? `${hidden} article${hidden>1?'s':''} masqué${hidden>1?'s':''} (hors mots-clés)` : 'Tous les articles correspondent';
+      info.style.display = 'block';
+    }
+  } else {
+    const info = document.getElementById('kw-filter-info');
+    if (info) info.style.display = 'none';
+  }
 
   if (articles.length === 0) {
     list.innerHTML = `<div class="empty-state">
@@ -1408,8 +1450,8 @@ function renderArticles(articles) {
           <span class="src-name">${a.feeds?.label || a.feeds?.url || '—'}</span>
           ${a.rubrique ? `<span class="article-rubrique">${a.rubrique}</span>` : ''}
         </div>
-        <div class="article-title">${a.title}</div>
-        ${a.description ? `<div class="article-desc">${a.description}</div>` : ''}
+        <div class="article-title">${highlight(a.title, a.feed_id)}</div>
+        ${a.description ? `<div class="article-desc">${highlight(a.description, a.feed_id)}</div>` : ''}
       </div>
       <div class="article-date">${relativeDate(a.published_at)}</div>`;
     item.querySelector('.article-title').onclick = () => window.open(a.url, '_blank');
@@ -1434,6 +1476,22 @@ function filterPeriod(el, days) {
   el.classList.add('active');
   activePeriod = days;
   fetchArticles();
+}
+
+function toggleKeywordFilter(el) {
+  kwFilterActive = !kwFilterActive;
+  el.classList.toggle('active', kwFilterActive);
+  el.style.background = kwFilterActive ? 'var(--navy)' : '';
+  el.style.color = kwFilterActive ? 'white' : '';
+  el.style.borderColor = kwFilterActive ? 'var(--navy)' : '';
+  renderArticles(allArticles);
+}
+
+function articleMatchesKeywords(a) {
+  const kws = feedKeywords[a.feed_id];
+  if (!kws || !kws.length) return true; // pas de keywords = on garde
+  const text = ((a.title || '') + ' ' + (a.description || '')).toLowerCase();
+  return kws.some(k => text.includes(k));
 }
 
 function searchArticles(query) {

@@ -699,7 +699,7 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
         <div class="export-btns">
           <button class="btn btn-ghost btn-sm" onclick="selectAll()">Tout sélectionner</button>
           <div style="position:relative;display:inline-block;">
-            <button class="btn btn-ghost btn-sm" onclick="toggleExportMenu()" id="export-btn">
+            <button class="btn btn-ghost btn-sm" onclick="toggleExportMenu(event)" id="export-btn">
               <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 2v7M3.5 6l3 3 3-3M1 11h11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
               Exporter ▾
             </button>
@@ -1281,16 +1281,18 @@ function updateSelectionInfo() {
     : `${n} article${n > 1 ? 's' : ''} sélectionné${n > 1 ? 's' : ''}`;
 }
 
-function toggleExportMenu() {
+function toggleExportMenu(e) {
+  e.stopPropagation();
   const menu = document.getElementById('export-menu');
-  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-  if (menu.style.display === 'block') {
-    setTimeout(() => document.addEventListener('click', closeExportMenu, { once: true }), 10);
-  }
-}
-function closeExportMenu(e) {
-  if (!document.getElementById('export-btn')?.contains(e.target)) {
-    document.getElementById('export-menu').style.display = 'none';
+  const isOpen = menu.style.display === 'block';
+  menu.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    setTimeout(() => {
+      document.addEventListener('click', function handler() {
+        menu.style.display = 'none';
+        document.removeEventListener('click', handler);
+      });
+    }, 0);
   }
 }
 

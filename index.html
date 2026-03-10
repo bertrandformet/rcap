@@ -2841,6 +2841,25 @@ sb.auth.onAuthStateChange(async (event, session) => {
   const loginScreen = document.getElementById('screen-login');
   const appEl = document.getElementById('app');
 
+  // Réinitialisation mot de passe : Supabase envoie PASSWORD_RECOVERY
+  if (event === 'PASSWORD_RECOVERY') {
+    currentUser = session.user;
+    loginScreen.classList.add('hidden');
+    appEl.classList.add('visible');
+    initUserUI(currentUser);
+    await loadAll();
+    await checkAdmin();
+    loader.style.opacity = '0';
+    setTimeout(() => loader.style.display = 'none', 400);
+    showPage('account');
+    setTimeout(() => {
+      toast('Définissez votre nouveau mot de passe ci-dessous');
+      const el = document.getElementById('account-pw1');
+      if (el) { el.scrollIntoView({ behavior: 'smooth' }); el.focus(); }
+    }, 500);
+    return;
+  }
+
   if (session?.user) {
     // TOKEN_REFRESHED = retour d'onglet, on ne réinitialise pas la vue
     if (event === 'TOKEN_REFRESHED' && currentUser) {
@@ -2857,15 +2876,10 @@ sb.auth.onAuthStateChange(async (event, session) => {
     if (isFirstLoad) {
       loader.style.opacity = '0';
       setTimeout(() => loader.style.display = 'none', 400);
-      // Arrivée via lien magique -> inviter à définir un mot de passe
+      // Premier login via lien magique (invitation) -> modal définir mot de passe
       if (event === 'SIGNED_IN' && _ismagicLink) {
         showPage('dashboard');
-        document.getElementById('banner-set-password').classList.remove('hidden');
-      } else if (event === 'SIGNED_IN' && _isRecovery) {
-        // Lien de réinitialisation -> aller directement sur "Mon compte", section mot de passe
-        showPage('account');
-        toast("Définissez votre nouveau mot de passe ci-dessous");
-        setTimeout(() => { const el = document.getElementById('account-pw1'); if (el) el.focus(); }, 500);
+        setTimeout(() => showSetPasswordModal(), 600);
       } else {
         showPage('dashboard');
       }

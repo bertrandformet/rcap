@@ -2339,11 +2339,12 @@ async function saveDisplayName() {
     data: { display_name: name, avatar_idx: selectedAvatarIdx }
   });
   if (error) { toast(error.message, true); return; }
+  // Synchroniser aussi la table profiles (utilisée par la console admin)
+  await sb.from('profiles').update({ display_name: name }).eq('id', currentUser.id);
   toast('Profil mis à jour ✓');
   document.getElementById('sidebar-name').textContent = name;
   document.getElementById('account-display-name').textContent = name;
   applyAvatar(name, opt);
-  // Rafraîchir les initiales dans le picker
   renderAvatarPicker(selectedAvatarIdx);
 }
 

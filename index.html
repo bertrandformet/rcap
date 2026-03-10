@@ -1001,7 +1001,7 @@ let currentScope     = 'personal';
 let feedCount        = 0;
 let srcColors        = {};     // feed_id → couleur pour les dots sources
 let feedKeywords     = {};     // feed_id → [mots-clés]
-let kwFilterActive   = false;  // filtre mots-cles actif
+let activeKws        = new Set(); // mots-clés actifs (chips sélectionnés)
 
 const COLORS = ['#1b3a6b','#f47920','#2a5298','#c95e08','#16a34a','#7c3aed','#0891b2','#dc2626'];
 
@@ -1313,7 +1313,7 @@ async function openWatchlist(w) {
   activeFeedFilter = null;
   activePeriod = 7;
   allArticles = [];
-  kwFilterActive = false;
+  activeKws = new Set();
 
   // Topbar
   document.getElementById('topbar-title').innerHTML = `<em>${w.name}</em>`;
@@ -1402,18 +1402,26 @@ async function buildSourceFilters(w) {
   });
 
   // Toggle mots-clés (uniquement si au moins un feed a des keywords)
-  if (Object.keys(feedKeywords).length > 0) {
+  // Chips mots-clés individuels (union de tous les feeds)
+  const allKws = [...new Set(Object.values(feedKeywords).flat())].sort();
+  if (allKws.length > 0) {
     const sep2 = document.createElement('div');
     sep2.className = 'filter-sep';
     bar.appendChild(sep2);
 
-    const kwChip = document.createElement('div');
-    kwChip.className = 'filter-chip kw-toggle';
-    kwChip.id = 'kw-toggle-chip';
-    kwChip.title = 'Afficher uniquement les articles contenant vos mots-clés';
-    kwChip.innerHTML = `<svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M1 3h10M3 6h6M5 9h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg> Mots-clés`;
-    kwChip.onclick = () => toggleKeywordFilter(kwChip);
-    bar.appendChild(kwChip);
+    const kwLabel = document.createElement('span');
+    kwLabel.className = 'filter-label';
+    kwLabel.textContent = 'Mots-clés :';
+    bar.appendChild(kwLabel);
+
+    allKws.forEach(kw => {
+      const chip = document.createElement('div');
+      chip.className = 'filter-chip kw-toggle';
+      chip.textContent = kw;
+      chip.dataset.kw = kw;
+      chip.onclick = () => toggleKeywordFilter(chip, kw);
+      bar.appendChild(chip);
+    });
   }
 }
 
@@ -1448,19 +1456,20 @@ function renderArticles(articles) {
   const list = document.getElementById('articles-list');
   list.innerHTML = '';
 
-  // Appliquer le filtre mots-clés si actif
-  if (kwFilterActive) {
-    const filtered = articles.filter(articleMatchesKeywords);
+  // Appliquer le filtre mots-clés si des chips sont actifs
+  const info = document.getElementById('kw-filter-info');
+  if (activeKws.size > 0) {
+    const filtered = articles.filter(a => {
+      const text = ((a.title || '') + ' ' + (a.description || '')).toLowerCase();
+      return [...activeKws].some(kw => text.includes(kw));
+    });
     const hidden = articles.length - filtered.length;
     articles = filtered;
-    // Afficher un indicateur du nb d'articles masqués
-    const info = document.getElementById('kw-filter-info');
     if (info) {
-      info.textContent = hidden > 0 ? `${hidden} article${hidden>1?'s':''} masqué${hidden>1?'s':''} (hors mots-clés)` : 'Tous les articles correspondent';
+      info.textContent = hidden > 0 ? `${hidden} article${hidden>1?'s':''} masqué${hidden>1?'s':''} (hors mots-clés sélectionnés)` : 'Tous les articles correspondent aux mots-clés';
       info.style.display = 'block';
     }
   } else {
-    const info = document.getElementById('kw-filter-info');
     if (info) info.style.display = 'none';
   }
 
@@ -1521,20 +1530,15 @@ function filterPeriod(el, days) {
   fetchArticles();
 }
 
-function toggleKeywordFilter(el) {
-  kwFilterActive = !kwFilterActive;
-  el.classList.toggle('active', kwFilterActive);
-  el.style.background = kwFilterActive ? 'var(--navy)' : '';
-  el.style.color = kwFilterActive ? 'white' : '';
-  el.style.borderColor = kwFilterActive ? 'var(--navy)' : '';
+function toggleKeywordFilter(el, kw) {
+  if (activeKws.has(kw)) {
+    activeKws.delete(kw);
+    el.classList.remove('active');
+  } else {
+    activeKws.add(kw);
+    el.classList.add('active');
+  }
   renderArticles(allArticles);
-}
-
-function articleMatchesKeywords(a) {
-  const kws = feedKeywords[a.feed_id];
-  if (!kws || !kws.length) return true; // pas de keywords = on garde
-  const text = ((a.title || '') + ' ' + (a.description || '')).toLowerCase();
-  return kws.some(k => text.includes(k));
 }
 
 function searchArticles(query) {

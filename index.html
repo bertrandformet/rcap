@@ -482,6 +482,11 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
 }
 .article-date { font-size:11px; color:var(--ink-faint); white-space:nowrap; text-align:right; padding-top:2px; }
+.article-item.is-read { background:var(--surface); }
+.article-item.is-read .article-title { color:var(--ink-light); font-weight:300; }
+.article-item.is-read .article-desc { color:var(--ink-faint); }
+.unread-dot { width:7px; height:7px; border-radius:50%; background:var(--navy); flex-shrink:0; margin-top:5px; }
+.article-item.is-read .unread-dot { background:transparent; }
 .articles-footer {
   display:flex; align-items:center; justify-content:space-between;
   padding:12px 28px; background:var(--white);
@@ -1002,6 +1007,7 @@ let feedCount        = 0;
 let srcColors        = {};     // feed_id → couleur pour les dots sources
 let feedKeywords     = {};     // feed_id → [mots-clés]
 let activeKws        = new Set(); // mots-clés actifs (chips sélectionnés)
+let showUnreadOnly   = false;  // filtre non lus
 
 const COLORS = ['#1b3a6b','#f47920','#2a5298','#c95e08','#16a34a','#7c3aed','#0891b2','#dc2626'];
 
@@ -1314,6 +1320,7 @@ async function openWatchlist(w) {
   activePeriod = 7;
   allArticles = [];
   activeKws = new Set();
+  showUnreadOnly = false;
 
   // Topbar
   document.getElementById('topbar-title').innerHTML = `<em>${w.name}</em>`;
@@ -1402,6 +1409,17 @@ async function buildSourceFilters(w) {
   });
 
   // Toggle mots-clés (uniquement si au moins un feed a des keywords)
+  // Chip "Non lus"
+  const sep3 = document.createElement('div');
+  sep3.className = 'filter-sep';
+  bar.appendChild(sep3);
+  const unreadChip = document.createElement('div');
+  unreadChip.className = 'filter-chip';
+  unreadChip.id = 'chip-unread';
+  unreadChip.innerHTML = '<svg width="7" height="7" viewBox="0 0 7 7" fill="none"><circle cx="3.5" cy="3.5" r="3.5" fill="currentColor"/></svg> Non lus';
+  unreadChip.onclick = () => toggleUnreadFilter(unreadChip);
+  bar.appendChild(unreadChip);
+
   // Chips mots-clés individuels (union de tous les feeds)
   const allKws = [...new Set(Object.values(feedKeywords).flat())].sort();
   if (allKws.length > 0) {
@@ -1482,9 +1500,16 @@ function renderArticles(articles) {
     return;
   }
 
+  // Filtre non lus
+  if (showUnreadOnly) {
+    articles = articles.filter(a => !(a.read_by || []).includes(currentUser.id));
+  }
+
   articles.forEach(a => {
+    const isRead = (a.read_by || []).includes(currentUser.id);
     const item = document.createElement('div');
-    item.className = 'article-item';
+    item.className = 'article-item' + (isRead ? ' is-read' : '');
+    item.dataset.id = a.id;
     const color = srcColors[a.feed_id] || '#9098b8';
     const checked = selectedIds.has(a.id) ? 'checked' : '';
     item.innerHTML = `
@@ -1498,8 +1523,11 @@ function renderArticles(articles) {
         <div class="article-title">${highlight(a.title, a.feed_id)}</div>
         ${a.description ? `<div class="article-desc">${highlight(a.description, a.feed_id)}</div>` : ''}
       </div>
-      <div class="article-date">${relativeDate(a.published_at)}</div>`;
-    item.querySelector('.article-title').onclick = () => window.open(a.url, '_blank');
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+        <div class="article-date">${relativeDate(a.published_at)}</div>
+        <div class="unread-dot"></div>
+      </div>`;
+    item.querySelector('.article-title').onclick = () => markRead(a, item);
     list.appendChild(item);
   });
   updateSelectionInfo();
@@ -1538,6 +1566,28 @@ function toggleKeywordFilter(el, kw) {
     activeKws.add(kw);
     el.classList.add('active');
   }
+  renderArticles(allArticles);
+}
+
+async function markRead(a, item) {
+  window.open(a.url, '_blank');
+  if ((a.read_by || []).includes(currentUser.id)) return;
+  item.classList.add('is-read');
+  const dot = item.querySelector('.unread-dot');
+  if (dot) dot.style.background = 'transparent';
+  const newReadBy = [...(a.read_by || []), currentUser.id];
+  a.read_by = newReadBy;
+  await sbFetch(`articles?id=eq.${a.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ read_by: newReadBy }),
+  }).catch(() => {});
+  const idx = allArticles.findIndex(x => x.id === a.id);
+  if (idx >= 0) allArticles[idx].read_by = newReadBy;
+}
+
+function toggleUnreadFilter(el) {
+  showUnreadOnly = !showUnreadOnly;
+  el.classList.toggle('active', showUnreadOnly);
   renderArticles(allArticles);
 }
 

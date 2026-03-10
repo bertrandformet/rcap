@@ -455,6 +455,18 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
   font-size:22px; font-weight:700; flex-shrink:0;
 }
 
+
+/* ── AVATAR PICKER ── */
+.avatar-picker { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.avatar-opt {
+  width:44px; height:44px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-size:18px; cursor:pointer; border:3px solid transparent;
+  transition:all 0.15s;
+}
+.avatar-opt:hover { transform:scale(1.1); }
+.avatar-opt.selected { border-color:var(--navy); box-shadow:0 0 0 2px white, 0 0 0 4px var(--navy); }
+
 /* ── SPINNER ── */
 .spinner {
   width:18px; height:18px; border:2px solid rgba(255,255,255,0.3);
@@ -715,8 +727,12 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
             <label>Nom affiché</label>
             <input id="account-name-input" type="text" placeholder="Prénom Nom">
           </div>
-          <div style="display:flex;justify-content:flex-end;">
-            <button class="btn btn-primary" onclick="saveDisplayName()">Enregistrer le nom</button>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Avatar</label>
+            <div class="avatar-picker" id="avatar-picker"></div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+            <button class="btn btn-primary" onclick="saveDisplayName()">Enregistrer</button>
           </div>
         </div>
 
@@ -1516,7 +1532,12 @@ function initUserUI(user) {
   const name = user.user_metadata?.display_name || user.email?.split('@')[0] || 'Utilisateur';
   document.getElementById('sidebar-name').textContent = name;
   document.getElementById('sidebar-email').textContent = user.email;
-  document.getElementById('sidebar-avatar').textContent = initials(name);
+  // Appliquer avatar sauvegardé
+  const idx = user.user_metadata?.avatar_idx ?? 0;
+  const opt = AVATAR_OPTIONS[idx] || AVATAR_OPTIONS[0];
+  const av = document.getElementById('sidebar-avatar');
+  av.style.background = opt.color;
+  av.textContent = opt.emoji || initials(name);
 }
 
 
@@ -1692,25 +1713,140 @@ async function confirmEdit() {
 // ─────────────────────────────────────────
 // PAGE COMPTE
 // ─────────────────────────────────────────
+const AVATAR_OPTIONS = [
+  // Initiales — couleurs
+  { color: '#1b3a6b', emoji: null },
+  { color: '#f47920', emoji: null },
+  { color: '#16a34a', emoji: null },
+  { color: '#7c3aed', emoji: null },
+  { color: '#0891b2', emoji: null },
+  { color: '#dc2626', emoji: null },
+  { color: '#be185d', emoji: null },
+  { color: '#b45309', emoji: null },
+  { color: '#065f46', emoji: null },
+  { color: '#1e3a5f', emoji: null },
+  { color: '#6d28d9', emoji: null },
+  { color: '#0f766e', emoji: null },
+  // Animaux
+  { color: '#1b3a6b', emoji: '🦊' },
+  { color: '#f47920', emoji: '🦁' },
+  { color: '#16a34a', emoji: '🐸' },
+  { color: '#7c3aed', emoji: '🦋' },
+  { color: '#0891b2', emoji: '🐬' },
+  { color: '#1b3a6b', emoji: '🐻' },
+  { color: '#dc2626', emoji: '🦅' },
+  { color: '#be185d', emoji: '🦩' },
+  { color: '#065f46', emoji: '🐢' },
+  { color: '#b45309', emoji: '🦔' },
+  { color: '#0891b2', emoji: '🐙' },
+  { color: '#6d28d9', emoji: '🦄' },
+  { color: '#f47920', emoji: '🐯' },
+  { color: '#16a34a', emoji: '🐊' },
+  { color: '#1b3a6b', emoji: '🐺' },
+  { color: '#dc2626', emoji: '🦀' },
+  { color: '#0f766e', emoji: '🐉' },
+  { color: '#be185d', emoji: '🦚' },
+  // Nature & objets
+  { color: '#1b3a6b', emoji: '🌊' },
+  { color: '#f47920', emoji: '🔥' },
+  { color: '#16a34a', emoji: '🌿' },
+  { color: '#7c3aed', emoji: '⚡' },
+  { color: '#0891b2', emoji: '❄️' },
+  { color: '#dc2626', emoji: '🌋' },
+  { color: '#b45309', emoji: '🍂' },
+  { color: '#065f46', emoji: '🌲' },
+  { color: '#be185d', emoji: '🌸' },
+  { color: '#6d28d9', emoji: '🌙' },
+  { color: '#1b3a6b', emoji: '⭐' },
+  { color: '#0f766e', emoji: '🌏' },
+  // Visages & persos
+  { color: '#1b3a6b', emoji: '🤖' },
+  { color: '#f47920', emoji: '👾' },
+  { color: '#7c3aed', emoji: '🧙' },
+  { color: '#dc2626', emoji: '🥷' },
+  { color: '#16a34a', emoji: '🧑‍🚀' },
+  { color: '#0891b2', emoji: '🧑‍💻' },
+  { color: '#b45309', emoji: '🧑‍🎨' },
+  { color: '#be185d', emoji: '🧑‍🔬' },
+  { color: '#6d28d9', emoji: '🧝' },
+  { color: '#065f46', emoji: '🧌' },
+  // Sport & jeu
+  { color: '#1b3a6b', emoji: '⚽' },
+  { color: '#f47920', emoji: '🏀' },
+  { color: '#dc2626', emoji: '🎯' },
+  { color: '#7c3aed', emoji: '🎮' },
+  { color: '#16a34a', emoji: '🎸' },
+  { color: '#0891b2', emoji: '🎲' },
+  { color: '#b45309', emoji: '🏆' },
+  { color: '#be185d', emoji: '🎪' },
+];
+let selectedAvatarIdx = 0;
+
+function renderAvatarPicker(currentIdx) {
+  const picker = document.getElementById('avatar-picker');
+  picker.innerHTML = '';
+  AVATAR_OPTIONS.forEach((opt, i) => {
+    const el = document.createElement('div');
+    el.className = 'avatar-opt' + (i === currentIdx ? ' selected' : '');
+    el.style.background = opt.color;
+    el.style.color = 'white';
+    const name = currentUser.user_metadata?.display_name || currentUser.email?.split('@')[0] || '?';
+    el.textContent = opt.emoji || initials(name);
+    el.onclick = () => {
+      selectedAvatarIdx = i;
+      document.querySelectorAll('.avatar-opt').forEach(e => e.classList.remove('selected'));
+      el.classList.add('selected');
+      // Prévisualiser
+      applyAvatar(name, opt);
+    };
+    picker.appendChild(el);
+  });
+}
+
+function applyAvatar(name, opt) {
+  const els = ['account-avatar-big', 'sidebar-avatar'];
+  els.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.background = opt.color;
+      el.textContent = opt.emoji || initials(name);
+    }
+  });
+}
+
 function initAccountPage() {
   const name = currentUser.user_metadata?.display_name || currentUser.email?.split('@')[0] || '';
+  const avatarIdx = currentUser.user_metadata?.avatar_idx ?? 0;
+  selectedAvatarIdx = avatarIdx;
   document.getElementById('account-display-name').textContent = name || currentUser.email;
   document.getElementById('account-email').textContent = currentUser.email;
-  document.getElementById('account-avatar-big').textContent = initials(name || currentUser.email);
   document.getElementById('account-name-input').value = name;
+  renderAvatarPicker(avatarIdx);
+  applyAvatar(name, AVATAR_OPTIONS[avatarIdx] || AVATAR_OPTIONS[0]);
+}
+
+function initAvatarFromUser(user) {
+  const name = user.user_metadata?.display_name || user.email?.split('@')[0] || '?';
+  const idx = user.user_metadata?.avatar_idx ?? 0;
+  const opt = AVATAR_OPTIONS[idx] || AVATAR_OPTIONS[0];
+  const el = document.getElementById('sidebar-avatar');
+  if (el) { el.style.background = opt.color; el.textContent = opt.emoji || initials(name); }
 }
 
 async function saveDisplayName() {
   const name = document.getElementById('account-name-input').value.trim();
   if (!name) { toast('Entrez un nom', true); return; }
-  const { error } = await sb.auth.updateUser({ data: { display_name: name } });
+  const opt = AVATAR_OPTIONS[selectedAvatarIdx] || AVATAR_OPTIONS[0];
+  const { error } = await sb.auth.updateUser({
+    data: { display_name: name, avatar_idx: selectedAvatarIdx }
+  });
   if (error) { toast(error.message, true); return; }
-  toast('Nom mis à jour ✓');
-  // Mettre à jour l'UI
+  toast('Profil mis à jour ✓');
   document.getElementById('sidebar-name').textContent = name;
-  document.getElementById('sidebar-avatar').textContent = initials(name);
   document.getElementById('account-display-name').textContent = name;
-  document.getElementById('account-avatar-big').textContent = initials(name);
+  applyAvatar(name, opt);
+  // Rafraîchir les initiales dans le picker
+  renderAvatarPicker(selectedAvatarIdx);
 }
 
 async function savePassword() {

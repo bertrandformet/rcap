@@ -521,10 +521,7 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
     <button id="btn-login" class="btn btn-primary btn-full" style="margin-top:4px;" onclick="doLogin()">
       Se connecter →
     </button>
-    <div class="login-divider">ou</div>
-    <button class="btn btn-ghost btn-full" onclick="doMagicLink()">
-      Recevoir un lien de connexion par email
-    </button>
+
     <div class="login-footer">Accès sur invitation. <a href="/cdn-cgi/l/email-protection#6f0e0b0206012f1d0a1c0a0e1a420c0e01001f0a41091d" style="color:var(--navy);">Contacter l'administrateur</a></div>
   </div>
 </div>
@@ -1480,7 +1477,10 @@ async function loadTeamsPage() {
         <div style="font-weight:500;font-size:14px;">${t.name}</div>
         <div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">Rôle : ${t.role === 'admin' ? 'Administrateur' : 'Membre'}</div>
       </div>
-      ${t.role === 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="inviteToTeam('${t.id}','${t.name}')">Inviter</button>` : ''}`;
+      <div style="display:flex;gap:6px;">
+        ${t.role === 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="inviteToTeam('${t.id}','${t.name}')">Inviter</button>` : ''}
+        ${t.role === 'admin' ? `<button class="btn btn-danger btn-sm" onclick="deleteTeam('${t.id}','${t.name}')">Supprimer</button>` : ''}
+      </div>`;
     list.appendChild(row);
   });
 }
@@ -1492,6 +1492,16 @@ async function createTeam() {
   await _createTeam(name);
   input.value = '';
   renderTeamChips();
+}
+
+async function deleteTeam(teamId, teamName) {
+  if (!confirm(`Supprimer l'équipe "${teamName}" ? Tous les espaces partagés associés resteront mais ne seront plus accessibles aux membres.`)) return;
+  const { error } = await sb.from('teams').delete().eq('id', teamId);
+  if (error) { toast(error.message, true); return; }
+  userTeams = userTeams.filter(t => t.id !== teamId);
+  toast(`Équipe "${teamName}" supprimée`);
+  await loadAll();
+  loadTeamsPage();
 }
 
 async function createTeamFromPage() {

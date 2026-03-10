@@ -596,6 +596,10 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
       Se connecter →
     </button>
 
+    <div style="text-align:center;margin-top:12px;">
+      <a href="#" onclick="doForgotPassword();return false;" style="font-size:12px;color:var(--ink-faint);text-decoration:none;border-bottom:1px dashed var(--border);">Mot de passe oublié ?</a>
+    </div>
+
     <div class="login-footer">Accès sur invitation. <a href="/cdn-cgi/l/email-protection#6f0e0b0206012f1d0a1c0a0e1a420c0e01001f0a41091d" style="color:var(--navy);">Contacter l'administrateur</a></div>
   </div>
 </div>
@@ -929,7 +933,8 @@ const SUPABASE_URL  = 'https://rmoptpqbcmqxtijuaxbr.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJtb3B0cHFiY21xeHRpanVheGJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTAzNjEsImV4cCI6MjA4ODY2NjM2MX0.EFxmW4-EdKPi207T8mT6IriE-IA5Ct2X168l2Gawz2w';
 
 // Détecter un lien magique AVANT que le SDK ne consomme le hash
-const _ismagicLink = window.location.hash.includes('access_token');
+const _ismagicLink = window.location.hash.includes('access_token') && !window.location.hash.includes('type=recovery');
+const _isRecovery  = window.location.hash.includes('type=recovery');
 
 // ─────────────────────────────────────────
 // INIT SUPABASE
@@ -1046,6 +1051,20 @@ async function doMagicLink() {
   const { error } = await sb.auth.signInWithOtp({ email });
   if (error) toast(error.message, true);
   else toast(`Lien envoyé à ${email} — vérifiez vos emails`);
+}
+
+async function doForgotPassword() {
+  const email = document.getElementById('login-email').value.trim();
+  if (!email) {
+    toast("Entrez votre adresse email ci-dessus, puis cliquez sur ce lien", true);
+    document.getElementById('login-email').focus();
+    return;
+  }
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: 'https://bfbf-test.github.io/rcap/'
+  });
+  if (error) { toast(error.message, true); return; }
+  toast(`Email envoyé à ${email} — vérifiez votre boîte`);
 }
 
 async function doLogout() {
@@ -2807,6 +2826,11 @@ sb.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && _ismagicLink) {
         showPage('dashboard');
         document.getElementById('banner-set-password').classList.remove('hidden');
+      } else if (event === 'SIGNED_IN' && _isRecovery) {
+        // Lien de réinitialisation -> aller directement sur "Mon compte", section mot de passe
+        showPage('account');
+        toast("Définissez votre nouveau mot de passe ci-dessous");
+        setTimeout(() => { const el = document.getElementById('account-pw1'); if (el) el.focus(); }, 500);
       } else {
         showPage('dashboard');
       }

@@ -483,6 +483,11 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
 }
 .article-date { font-size:11px; color:var(--ink-faint); white-space:nowrap; text-align:right; padding-top:2px; }
 .article-item.is-read { background:var(--surface); }
+.card-unread-badge {
+  background:var(--orange); color:white;
+  font-size:11px; font-weight:700; line-height:1;
+  padding:3px 7px; border-radius:99px; flex-shrink:0;
+}
 .article-item.is-read .article-title { color:var(--ink-light); font-weight:300; }
 .article-item.is-read .article-desc { color:var(--ink-faint); }
 .unread-dot { width:7px; height:7px; border-radius:50%; background:var(--navy); flex-shrink:0; margin-top:5px; }
@@ -1219,16 +1224,19 @@ async function loadDashboard() {
     return;
   }
 
-  // Compter les articles récents par watchlist
+  // Compter les articles récents + non-lus par watchlist
   const counts = {};
+  const unreadCounts = {};
   const since = new Date();
   since.setDate(since.getDate() - 7);
   const recent = await sbFetch(
-    `articles?select=watchlist_id&published_at=gte.${since.toISOString()}`
+    `articles?select=watchlist_id,read_by&published_at=gte.${since.toISOString()}`
   ).catch(() => []);
 
   (recent || []).forEach(a => {
     counts[a.watchlist_id] = (counts[a.watchlist_id] || 0) + 1;
+    const isRead = (a.read_by || []).includes(currentUser.id);
+    if (!isRead) unreadCounts[a.watchlist_id] = (unreadCounts[a.watchlist_id] || 0) + 1;
   });
 
   // Séparer perso / équipe
@@ -1239,18 +1247,18 @@ async function loadDashboard() {
     byTeam[w.team_id].push(w);
   });
 
-  renderPersonalGrid(personal, counts);
-  renderTeamGroups(byTeam, counts);
-  renderSidebar(personal, byTeam);
+  renderPersonalGrid(personal, counts, unreadCounts);
+  renderTeamGroups(byTeam, counts, unreadCounts);
+  renderSidebar(personal, byTeam, unreadCounts);
 }
 
 // ─────────────────────────────────────────
 // RENDU DASHBOARD
 // ─────────────────────────────────────────
-function renderPersonalGrid(watchlists, counts) {
+function renderPersonalGrid(watchlists, counts, unreadCounts = {}) {
   const grid = document.getElementById('grid-personal');
   grid.innerHTML = '';
-  watchlists.forEach(w => grid.appendChild(makeCard(w, counts)));
+  watchlists.forEach(w => grid.appendChild(makeCard(w, counts, unreadCounts)));
   // Bouton "créer"
   const add = document.createElement('div');
   add.className = 'watchlist-card card-new';
@@ -1259,7 +1267,7 @@ function renderPersonalGrid(watchlists, counts) {
   grid.appendChild(add);
 }
 
-function renderTeamGroups(byTeam, counts) {
+function renderTeamGroups(byTeam, counts, unreadCounts = {}) {
   const container = document.getElementById('team-groups-container');
   container.innerHTML = '';
   if (Object.keys(byTeam).length === 0) return;
@@ -1277,13 +1285,13 @@ function renderTeamGroups(byTeam, counts) {
     group.innerHTML = header;
     const grid = document.createElement('div');
     grid.className = 'cards-grid';
-    watchlists.forEach(w => grid.appendChild(makeCard(w, counts)));
+    watchlists.forEach(w => grid.appendChild(makeCard(w, counts, unreadCounts)));
     group.appendChild(grid);
     container.appendChild(group);
   });
 }
 
-function makeCard(w, counts) {
+function makeCard(w, counts, unreadCounts = {}) {
   const card = document.createElement('div');
   card.className = `watchlist-card ${w.scope === 'team' ? 'team' : 'perso'}`;
   card.onclick = () => openWatchlist(w);
@@ -1292,10 +1300,15 @@ function makeCard(w, counts) {
   const chips  = feeds.map(f => `<span class="feed-chip">${f.label || f.url}</span>`).join('');
   const moreChip = extra > 0 ? `<span class="feed-chip">+${extra} flux</span>` : '';
   const count = counts[w.id] || 0;
+  const unread = unreadCounts[w.id] || 0;
+  const unreadBadge = unread > 0 ? `<span class="card-unread-badge">${unread} non lu${unread>1?'s':''}</span>` : '';
   card.innerHTML = `
     <div class="card-header">
       <div class="card-name">${w.name}</div>
-      <span class="badge ${w.scope === 'team' ? 'badge-team' : 'badge-perso'}">${w.scope === 'team' ? 'Équipe' : 'Perso'}</span>
+      <div style="display:flex;align-items:center;gap:6px;">
+        ${unreadBadge}
+        <span class="badge ${w.scope === 'team' ? 'badge-team' : 'badge-perso'}">${w.scope === 'team' ? 'Équipe' : 'Perso'}</span>
+      </div>
     </div>
     <div class="card-feeds">${chips}${moreChip}</div>
     <div class="card-meta">
@@ -1376,6 +1389,10 @@ async function openWatchlist(w) {
       <input type="text" placeholder="Rechercher…" oninput="searchArticles(this.value)">
     </div>
     ${actionBtns}
+    <button class="btn btn-ghost btn-sm" onclick="markAllRead()" title="Marquer tous les articles visibles comme lus">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M1 7l3.5 3.5L12 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Tout lu
+    </button>
     <button class="btn btn-ghost btn-sm" onclick="showPage('dashboard')">← Retour</button>`;
 
   // Sidebar actif
@@ -1681,6 +1698,35 @@ function toggleKeywordFilter(el, kw) {
     el.classList.add('active');
   }
   renderArticles(allArticles);
+}
+
+async function markAllRead() {
+  const unread = allArticles.filter(a => !(a.read_by || []).includes(currentUser.id));
+  if (unread.length === 0) { toast('Tous les articles sont déjà lus'); return; }
+
+  // Mise à jour optimiste du DOM
+  document.querySelectorAll('.article-item:not(.is-read)').forEach(item => {
+    item.classList.add('is-read');
+    const dot = item.querySelector('.unread-dot');
+    if (dot) dot.style.background = 'transparent';
+  });
+
+  // Persister par lots de 50
+  const batchSize = 50;
+  for (let i = 0; i < unread.length; i += batchSize) {
+    const batch = unread.slice(i, i + batchSize);
+    const ids = batch.map(a => a.id);
+    await sbFetch(`articles?id=in.(${ids.join(',')})`, {
+      method: 'PATCH',
+      body: JSON.stringify({ read_by: [currentUser.id] }),
+    }).catch(() => {});
+    batch.forEach(a => {
+      a.read_by = [...(a.read_by || []), currentUser.id];
+      const idx = allArticles.findIndex(x => x.id === a.id);
+      if (idx >= 0) allArticles[idx].read_by = a.read_by;
+    });
+  }
+  toast(`${unread.length} article${unread.length>1?'s':''} marqué${unread.length>1?'s':''} comme lu${unread.length>1?'s':''} ✓`);
 }
 
 async function markRead(a, item) {

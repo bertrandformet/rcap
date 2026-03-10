@@ -1528,6 +1528,67 @@ async function _createTeam(name) {
 
 
 
+
+async function inviteToTeam(teamId, teamName) {
+  document.getElementById('modal-invite-title').textContent = `Inviter dans "${teamName}"`;
+  document.getElementById('invite-team-id').value = teamId;
+  document.getElementById('invite-search-input').value = '';
+  document.getElementById('invite-results').innerHTML = '';
+  document.getElementById('modal-invite').classList.remove('hidden');
+  setTimeout(() => document.getElementById('invite-search-input').focus(), 100);
+}
+
+async function searchUsersToInvite() {
+  const q = document.getElementById('invite-search-input').value.trim();
+  const results = document.getElementById('invite-results');
+  if (q.length < 2) { results.innerHTML = ''; return; }
+
+  results.innerHTML = '<div style="color:var(--ink-faint);font-size:12px;padding:8px;">Recherche…</div>';
+
+  const data = await sbFetch(
+    `profiles?or=(display_name.ilike.*${encodeURIComponent(q)}*,email.ilike.*${encodeURIComponent(q)}*)&limit=8&select=id,display_name,email`
+  ).catch(() => []);
+
+  console.log('Résultats recherche:', data);
+
+  if (!data || data.length === 0) {
+    results.innerHTML = '<div style="color:var(--ink-faint);font-size:12px;padding:8px;">Aucun utilisateur trouvé.</div>';
+    return;
+  }
+
+  results.innerHTML = '';
+  data.forEach(u => {
+    if (u.id === currentUser.id) return;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:9px 4px;border-bottom:1px solid var(--border-soft);';
+    const name = u.display_name || u.email?.split('@')[0] || '—';
+    row.innerHTML = `
+      <div>
+        <div style="font-size:13px;font-weight:500;">${name}</div>
+        <div style="font-size:11px;color:var(--ink-faint);">${u.email || ''}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="addToTeam('${u.id}','${name}')">Ajouter</button>`;
+    results.appendChild(row);
+  });
+}
+
+async function addToTeam(userId, userName) {
+  const teamId = document.getElementById('invite-team-id').value;
+  const { error } = await sb.from('team_members').insert({ team_id: teamId, user_id: userId });
+  if (error) {
+    if (error.code === '23505') toast(`${userName} est déjà dans cette équipe`);
+    else toast(error.message, true);
+  } else {
+    toast(`${userName} ajouté à l'équipe ✓`);
+    document.querySelectorAll('#invite-results button').forEach(btn => {
+      if (btn.getAttribute('onclick')?.includes(userId)) {
+        btn.textContent = '✓';
+        btn.disabled = true;
+      }
+    });
+  }
+}
+
 // ─────────────────────────────────────────
 // INIT UTILISATEUR
 // ─────────────────────────────────────────

@@ -598,6 +598,15 @@ body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); co
     <!-- ── PAGE : DASHBOARD ── -->
     <div id="page-dashboard" class="page main-content">
 
+      <!-- Bannière premier login -->
+      <div id="banner-set-password" class="hidden" style="display:flex;align-items:center;justify-content:space-between;background:#fff8ed;border:1.5px solid #f47920;border-radius:var(--radius);padding:12px 16px;margin-bottom:20px;gap:12px;">
+        <span style="font-size:13px;color:#1b3a6b;">👋 Bienvenue sur RCap ! Pensez à <strong>définir un mot de passe</strong> pour pouvoir vous reconnecter.</span>
+        <div style="display:flex;gap:8px;flex-shrink:0;">
+          <button class="btn btn-accent btn-sm" onclick="showPage('account');document.getElementById('banner-set-password').classList.add('hidden');">Définir mon mot de passe</button>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('banner-set-password').classList.add('hidden');">Plus tard</button>
+        </div>
+      </div>
+
       <div class="section-label perso">Mes espaces personnels</div>
       <div class="cards-grid" id="grid-personal">
         <div class="watchlist-card card-new" onclick="showCreate()">
@@ -2708,10 +2717,10 @@ sb.auth.onAuthStateChange(async (event, session) => {
     if (isFirstLoad) {
       loader.style.opacity = '0';
       setTimeout(() => loader.style.display = 'none', 400);
-      // Arrivée via lien magique -> demander de définir un mot de passe
+      // Arrivée via lien magique -> inviter à définir un mot de passe
       if (event === 'SIGNED_IN' && _ismagicLink) {
         showPage('dashboard');
-        showSetPasswordModal();
+        document.getElementById('banner-set-password').classList.remove('hidden');
       } else {
         showPage('dashboard');
       }

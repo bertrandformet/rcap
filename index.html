@@ -1883,14 +1883,22 @@ sb.auth.onAuthStateChange(async (event, session) => {
   const appEl = document.getElementById('app');
 
   if (session?.user) {
+    // TOKEN_REFRESHED = retour d'onglet, on ne réinitialise pas la vue
+    if (event === 'TOKEN_REFRESHED' && currentUser) {
+      currentUser = session.user;
+      return;
+    }
+    const isFirstLoad = !currentUser;
     currentUser = session.user;
     loginScreen.classList.add('hidden');
     appEl.classList.add('visible');
     initUserUI(currentUser);
     await loadAll();
-    showPage('dashboard');
-    loader.style.opacity = '0';
-    setTimeout(() => loader.style.display = 'none', 400);
+    if (isFirstLoad) {
+      showPage('dashboard');
+      loader.style.opacity = '0';
+      setTimeout(() => loader.style.display = 'none', 400);
+    }
   } else {
     currentUser = null;
     appEl.classList.remove('visible');

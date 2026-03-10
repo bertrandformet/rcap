@@ -1,73 +1,2686 @@
-import { createClient } from '@supabase/supabase-js';
-import RSSParser from 'rss-parser';
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RCap</title>
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
+<!-- Supabase SDK (chargé depuis CDN, pas d'install nécessaire) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3"></script>
 
-const parser = new RSSParser();
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 
-async function run() {
-  console.log('── RCap Fetch démarré ──');
+<style>
+:root {
+  --navy:       #1b3a6b;
+  --navy-dark:  #102444;
+  --navy-mid:   #2a5298;
+  --navy-soft:  #e8eef8;
+  --orange:     #f47920;
+  --orange-dk:  #c95e08;
+  --orange-soft:#fdeede;
+  --ink:        #1a1a2e;
+  --ink-light:  #4a5068;
+  --ink-faint:  #9098b8;
+  --surface:    #f7f8fc;
+  --white:      #ffffff;
+  --border:     #dde3f0;
+  --border-soft:#eef0f8;
+  --radius:     3px;
+  --shadow:     0 2px 10px rgba(27,58,107,0.08);
+  --shadow-lg:  0 8px 32px rgba(27,58,107,0.14);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'DM Sans',system-ui,sans-serif; background:var(--surface); color:var(--ink); font-size:14px; line-height:1.6; }
 
-  const { data: feeds, error } = await supabase
-    .from('feeds')
-    .select('id, url, label, keywords, watchlist_id')
-    .eq('active', true);
+/* ── UTILITAIRES ── */
+.hidden { display:none !important; }
+.serif  { font-family:'Source Serif 4',serif; }
 
-  if (error) {
-    console.error('Erreur lecture feeds :', error.message);
-    process.exit(1);
-  }
+/* ── NOTIFICATIONS ── */
+#toast {
+  position:fixed; bottom:24px; right:24px; z-index:9999;
+  background:var(--ink); color:white;
+  padding:12px 20px; border-radius:var(--radius);
+  font-size:13px; box-shadow:var(--shadow-lg);
+  transition:opacity 0.3s; opacity:0; pointer-events:none;
+}
+#toast.show { opacity:1; }
+#toast.error { background:#c0392b; }
 
-  console.log(`${feeds.length} flux à traiter`);
+/* ── LOADER ── */
+#loader {
+  position:fixed; inset:0; background:var(--navy);
+  display:flex; align-items:center; justify-content:center;
+  z-index:9998; transition:opacity 0.4s;
+}
+.loader-logo { font-family:'Source Serif 4',serif; font-size:42px; color:white; letter-spacing:-1px; }
+.loader-logo em { color:var(--orange); font-style:normal; font-weight:300; }
 
-  let inserted = 0;
-  let skipped  = 0;
-  let errors   = 0;
+/* ── BOUTONS ── */
+.btn {
+  display:inline-flex; align-items:center; gap:8px;
+  padding:10px 20px; border:none; border-radius:var(--radius);
+  font-family:inherit; font-size:13px; font-weight:500;
+  cursor:pointer; transition:all 0.15s;
+}
+.btn-primary { background:var(--navy); color:white; }
+.btn-primary:hover { background:var(--navy-dark); }
+.btn-accent  { background:var(--orange); color:white; }
+.btn-accent:hover  { background:var(--orange-dk); }
+.btn-ghost   { background:transparent; color:var(--ink-light); border:1.5px solid var(--border); }
+.btn-ghost:hover   { border-color:var(--navy); color:var(--navy); }
+.btn-danger  { background:transparent; color:#c0392b; border:1.5px solid #f5c6cb; }
+.btn-danger:hover  { background:#fdf0f0; }
+.btn-sm  { padding:6px 13px; font-size:12px; }
+.btn-full { width:100%; justify-content:center; }
+.btn:disabled { opacity:0.5; cursor:not-allowed; }
 
-  for (const feed of feeds) {
-    try {
-      const parsed = await parser.parseURL(feed.url);
-      console.log(`\n→ ${feed.label || feed.url} (${parsed.items.length} items)`);
+/* ── FORMULAIRES ── */
+.form-group { margin-bottom:16px; }
+.form-group label {
+  display:block; font-size:11px; letter-spacing:0.08em;
+  text-transform:uppercase; color:var(--ink-light);
+  margin-bottom:7px; font-weight:500;
+}
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width:100%; padding:10px 12px;
+  border:1.5px solid var(--border); border-radius:var(--radius);
+  background:var(--white); font-family:inherit;
+  font-size:14px; color:var(--ink); outline:none; transition:border-color 0.2s;
+}
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  border-color:var(--navy);
+  box-shadow:0 0 0 3px var(--navy-soft);
+}
+.form-group textarea { resize:vertical; min-height:76px; }
+.form-hint { font-size:11px; color:var(--ink-faint); margin-top:5px; }
 
-      for (const item of parsed.items) {
-        if (feed.keywords?.length > 0) {
-          const text = `${item.title ?? ''} ${item.contentSnippet ?? ''}`.toLowerCase();
-          const match = feed.keywords.some(kw => text.includes(kw.toLowerCase()));
-          if (!match) { skipped++; continue; }
-        }
+/* ════════════════════════════════════════
+   ÉCRAN LOGIN
+════════════════════════════════════════ */
+#screen-login {
+  min-height:100vh; background:var(--navy);
+  display:flex; align-items:center; justify-content:center;
+  position:relative; overflow:hidden;
+}
+.login-orb {
+  position:absolute; border-radius:50%; pointer-events:none;
+}
+.login-orb-1 {
+  width:500px; height:500px;
+  background:radial-gradient(circle, rgba(244,121,32,0.18) 0%, transparent 70%);
+  top:-180px; right:-120px;
+}
+.login-orb-2 {
+  width:380px; height:380px;
+  background:radial-gradient(circle, rgba(42,82,152,0.35) 0%, transparent 70%);
+  bottom:-100px; left:-80px;
+}
+.login-card {
+  position:relative; z-index:1;
+  background:var(--white); border-radius:var(--radius);
+  padding:44px 40px; width:400px;
+  box-shadow:var(--shadow-lg);
+}
+.login-logo { font-family:'Source Serif 4',serif; font-size:36px; letter-spacing:-1px; }
+.login-logo .rc { color:var(--navy); font-weight:600; }
+.login-logo .ap { color:var(--orange); font-weight:300; }
+.login-tagline { font-size:11px; color:var(--ink-faint); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:32px; margin-top:4px; }
+.login-divider {
+  text-align:center; color:var(--ink-faint); font-size:12px; margin:16px 0; position:relative;
+}
+.login-divider::before, .login-divider::after {
+  content:''; position:absolute; top:50%; width:42%; height:1px; background:var(--border);
+}
+.login-divider::before { left:0; }
+.login-divider::after  { right:0; }
+.login-footer { text-align:center; margin-top:20px; font-size:12px; color:var(--ink-faint); }
 
-        const { error: upsertErr } = await supabase
-          .from('articles')
-          .upsert(
-            {
-              feed_id:      feed.id,
-              watchlist_id: feed.watchlist_id,
-              guid:         item.guid || item.link,
-              title:        item.title?.slice(0, 500),
-              description:  item.contentSnippet?.slice(0, 1000),
-              url:          item.link,
-              published_at: item.pubDate ? new Date(item.pubDate).toISOString() : null,
-            },
-            { onConflict: 'feed_id,guid', ignoreDuplicates: true }
-          );
+/* ════════════════════════════════════════
+   APP SHELL
+════════════════════════════════════════ */
+#app { display:none; }
+#app.visible { display:grid; grid-template-columns:252px 1fr; min-height:100vh; }
 
-        if (upsertErr) { console.error('  ✗', upsertErr.message); errors++; }
-        else inserted++;
-      }
+/* ── SIDEBAR ── */
+.sidebar {
+  background:var(--navy); display:flex; flex-direction:column;
+  position:sticky; top:0; height:100vh; overflow-y:auto;
+}
+.sidebar-header { padding:20px 16px 16px; }
+.sidebar-logo { font-family:'Source Serif 4',serif; font-size:24px; letter-spacing:-0.5px; }
+.sidebar-logo .rc { color:white; font-weight:600; }
+.sidebar-logo .ap { color:var(--orange); font-weight:300; }
+.user-badge {
+  display:flex; align-items:center; gap:10px; margin-top:14px;
+  padding:10px 12px; background:rgba(255,255,255,0.08); border-radius:var(--radius);
+}
+.user-avatar {
+  width:32px; height:32px; border-radius:50%;
+  background:var(--orange); color:white;
+  display:flex; align-items:center; justify-content:center;
+  font-size:12px; font-weight:700; flex-shrink:0;
+}
+.user-name  { font-size:13px; font-weight:500; color:white; }
+.user-email { font-size:11px; color:rgba(255,255,255,0.4); }
 
-    } catch (err) {
-      console.error(`  ✗ ${feed.label || feed.url} :`, err.message);
-      errors++;
-    }
-  }
+.sidebar-section { padding:16px 10px 4px; }
+.sidebar-section-title {
+  font-size:10px; letter-spacing:0.12em; text-transform:uppercase;
+  color:rgba(255,255,255,0.35); font-weight:500;
+  padding:0 6px; margin-bottom:5px;
+}
+.sidebar-item {
+  display:flex; align-items:center; gap:10px;
+  padding:8px 10px; border-radius:var(--radius);
+  cursor:pointer; font-size:13px; color:rgba(255,255,255,0.6);
+  margin-bottom:1px; transition:background 0.12s; user-select:none;
+}
+.sidebar-item:hover  { background:rgba(255,255,255,0.07); color:rgba(255,255,255,0.9); }
+.sidebar-item.active { background:rgba(255,255,255,0.13); color:white; font-weight:500; }
+.item-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.dot-perso { background:#7eaaee; }
+.dot-team  { background:var(--orange); }
+.item-count {
+  margin-left:auto; font-size:10px; padding:1px 6px; border-radius:10px;
+  background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.65);
+}
+.sidebar-add {
+  display:flex; align-items:center; gap:7px;
+  padding:6px 10px; border-radius:var(--radius);
+  cursor:pointer; color:rgba(255,255,255,0.3); font-size:12px; transition:color 0.12s;
+}
+.sidebar-add:hover { color:rgba(255,255,255,0.65); }
+.sidebar-divider { height:1px; background:rgba(255,255,255,0.07); margin:6px 10px; }
 
-  console.log('\n── Résumé ──');
-  console.log(`✓ ${inserted} articles insérés`);
-  console.log(`○ ${skipped} filtrés`);
-  if (errors > 0) console.log(`✗ ${errors} erreurs`);
+.sidebar-footer { margin-top:auto; padding:12px 10px; border-top:1px solid rgba(255,255,255,0.07); }
+.sidebar-footer-link {
+  display:flex; align-items:center; gap:9px;
+  font-size:12px; color:rgba(255,255,255,0.3);
+  cursor:pointer; padding:7px 8px; border-radius:var(--radius); transition:all 0.12s;
+}
+.sidebar-footer-link:hover { color:rgba(255,255,255,0.7); background:rgba(255,255,255,0.05); }
+
+/* ── MAIN ── */
+.main { display:flex; flex-direction:column; min-height:100vh; overflow:hidden; }
+.topbar {
+  background:var(--white); border-bottom:1px solid var(--border);
+  padding:13px 28px; display:flex; align-items:center; justify-content:space-between;
+  position:sticky; top:0; z-index:10;
+}
+.topbar-title { font-family:'Source Serif 4',serif; font-size:20px; font-weight:400; }
+.topbar-title em { color:var(--ink-faint); font-style:italic; }
+.topbar-actions { display:flex; gap:8px; align-items:center; }
+.main-content { padding:26px 28px; flex:1; overflow-y:auto; }
+
+/* ── PAGES (dans main) ── */
+.page { display:none; }
+.page.active { display:block; }
+
+/* ── DASHBOARD ── */
+.section-label {
+  font-size:10px; letter-spacing:0.12em; text-transform:uppercase;
+  color:var(--ink-faint); font-weight:500;
+  display:flex; align-items:center; gap:8px; margin-bottom:14px;
+}
+.section-label::before { content:''; width:8px; height:8px; border-radius:50%; display:inline-block; }
+.section-label.perso::before { background:var(--navy-mid); }
+.section-label.team::before  { background:var(--orange); }
+
+.cards-grid {
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(268px,1fr));
+  gap:14px; margin-bottom:32px;
+}
+.watchlist-card {
+  background:var(--white); border:1px solid var(--border);
+  border-radius:var(--radius); padding:18px;
+  cursor:pointer; transition:all 0.15s;
+}
+.watchlist-card:hover { border-color:var(--navy); box-shadow:var(--shadow); transform:translateY(-1px); }
+.watchlist-card.perso { border-top:3px solid var(--navy-mid); }
+.watchlist-card.team  { border-top:3px solid var(--orange); }
+.card-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:10px; gap:10px; }
+.card-name { font-family:'Source Serif 4',serif; font-size:16px; font-weight:400; line-height:1.3; }
+.badge {
+  font-size:10px; letter-spacing:0.06em; text-transform:uppercase;
+  padding:3px 8px; border-radius:2px; font-weight:500; flex-shrink:0; white-space:nowrap;
+}
+.badge-perso { background:var(--navy-soft); color:var(--navy); }
+.badge-team  { background:var(--orange-soft); color:var(--orange-dk); }
+.card-feeds  { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:12px; }
+.feed-chip {
+  font-size:11px; padding:2px 8px;
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:20px; color:var(--ink-light);
+}
+.card-meta {
+  display:flex; align-items:center; justify-content:space-between;
+  font-size:11px; color:var(--ink-faint);
+  padding-top:10px; border-top:1px solid var(--border-soft);
+}
+.card-meta-count { font-weight:600; color:var(--orange); }
+.card-new {
+  border:1.5px dashed var(--border); background:transparent;
+  display:flex; align-items:center; justify-content:center;
+  flex-direction:column; gap:10px; min-height:130px;
+  color:var(--ink-faint); transition:all 0.15s;
+}
+.card-new:hover { border-color:var(--navy); color:var(--navy); background:var(--navy-soft); transform:none; box-shadow:none; }
+.card-new span { font-size:13px; }
+.team-group { margin-bottom:26px; }
+.team-header { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+.team-name-label { font-family:'Source Serif 4',serif; font-size:17px; font-weight:400; }
+
+/* ── FORMULAIRE ── */
+.form-container { max-width:640px; margin:0 auto; }
+.form-section {
+  background:var(--white); border:1px solid var(--border);
+  border-radius:var(--radius); padding:24px; margin-bottom:16px;
+}
+.form-section-title { font-family:'Source Serif 4',serif; font-size:16px; margin-bottom:4px; }
+.admin-stat-card { background:var(--surface); border:1.5px solid var(--border); border-radius:var(--radius); padding:16px; text-align:center; }
+.admin-stat-card .stat-val { font-size:28px; font-weight:700; color:var(--navy); }
+.admin-stat-card .stat-lbl { font-size:11px; color:var(--ink-faint); margin-top:4px; text-transform:uppercase; letter-spacing:.05em; }
+.admin-tab { background:none; border:none; padding:10px 16px; font-family:inherit; font-size:13px; cursor:pointer; color:var(--ink-faint); border-bottom:2px solid transparent; margin-bottom:-2px; }
+.admin-tab.active { color:var(--navy); border-bottom-color:var(--navy); font-weight:600; }
+.admin-table { width:100%; border-collapse:collapse; font-size:13px; }
+.admin-table th { text-align:left; padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); border-bottom:2px solid var(--border); }
+.admin-table td { padding:10px 12px; border-bottom:1px solid var(--border-soft); vertical-align:middle; }
+.admin-table tr:hover td { background:var(--surface); }
+.form-section-desc  { font-size:12px; color:var(--ink-faint); margin-bottom:20px; }
+
+.scope-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.scope-opt {
+  border:1.5px solid var(--border); border-radius:var(--radius);
+  padding:14px; cursor:pointer; transition:all 0.15s;
+}
+.scope-opt:hover { border-color:var(--navy); }
+.scope-opt.selected.perso { border-color:var(--navy); background:var(--navy-soft); }
+.scope-opt.selected.team  { border-color:var(--orange); background:var(--orange-soft); }
+.scope-icon  { font-size:18px; margin-bottom:5px; }
+.scope-label { font-size:13px; font-weight:500; }
+.scope-desc  { font-size:11px; color:var(--ink-faint); }
+
+.team-selector { display:none; margin-top:14px; }
+.team-selector.visible { display:block; }
+.team-chips { display:flex; flex-wrap:wrap; gap:7px; margin-top:9px; }
+.team-chip {
+  padding:5px 13px; border:1.5px solid var(--border);
+  border-radius:20px; font-size:12px; cursor:pointer;
+  transition:all 0.15s; font-family:inherit;
+  background:white;
+}
+.team-chip:hover { border-color:var(--orange); }
+.team-chip.selected { border-color:var(--orange); background:var(--orange-soft); color:var(--orange-dk); }
+
+.feed-block {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius); padding:16px; margin-bottom:10px; position:relative;
+}
+.feed-block-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+.feed-block-title { font-size:12px; font-weight:500; color:var(--ink-light); }
+.feed-remove { background:none; border:none; cursor:pointer; color:var(--ink-faint); font-size:18px; line-height:1; transition:color 0.12s; }
+.feed-remove:hover { color:#c0392b; }
+.feed-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:end; }
+.feed-row .form-group { margin:0; }
+
+.keywords-input {
+  display:flex; flex-wrap:wrap; gap:5px; padding:8px 10px;
+  border:1.5px solid var(--border); border-radius:var(--radius);
+  background:var(--white); min-height:42px; cursor:text;
+  align-items:center; transition:border-color 0.2s;
+}
+.keywords-input:focus-within { border-color:var(--navy); box-shadow:0 0 0 3px var(--navy-soft); }
+.kw-tag {
+  display:flex; align-items:center; gap:4px;
+  background:var(--navy-soft); border:1px solid var(--border);
+  padding:2px 8px 2px 9px; border-radius:20px; font-size:12px; color:var(--navy);
+}
+.kw-remove { cursor:pointer; color:var(--ink-faint); font-size:14px; line-height:1; background:none; border:none; }
+.kw-remove:hover { color:var(--orange); }
+.kw-input {
+  border:none; outline:none; background:transparent;
+  font-family:inherit; font-size:12px; min-width:100px; color:var(--ink);
+}
+.add-feed-btn {
+  display:flex; align-items:center; gap:8px;
+  padding:10px 14px; border:1.5px dashed var(--border);
+  border-radius:var(--radius); background:transparent;
+  color:var(--ink-faint); font-family:inherit; font-size:13px;
+  cursor:pointer; width:100%; transition:all 0.15s;
+}
+.add-feed-btn:hover { border-color:var(--navy); color:var(--navy); background:var(--navy-soft); }
+.form-actions { display:flex; justify-content:flex-end; gap:10px; padding-top:4px; }
+
+/* ── ARTICLES ── */
+.search-box {
+  display:flex; align-items:center; gap:9px;
+  background:var(--surface); border:1.5px solid var(--border);
+  border-radius:var(--radius); padding:7px 13px; flex:1; max-width:320px;
+}
+.search-box:focus-within { border-color:var(--navy); }
+.search-box input { border:none; background:transparent; font-family:inherit; font-size:13px; color:var(--ink); outline:none; flex:1; }
+.filter-bar {
+  display:flex; gap:7px; align-items:center;
+  padding:10px 28px; background:var(--white);
+  border-bottom:1px solid var(--border); overflow-x:auto; flex-wrap:nowrap;
+  scrollbar-width:none;
+}
+.filter-bar::-webkit-scrollbar { display:none; }
+.filter-label { font-size:11px; color:var(--ink-faint); white-space:nowrap; }
+.filter-chip {
+  padding:4px 11px; border:1.5px solid var(--border);
+  border-radius:20px; font-size:12px; cursor:pointer;
+  white-space:nowrap; transition:all 0.15s; background:white; font-family:inherit;
+}
+.filter-chip:hover { border-color:var(--navy); color:var(--navy); }
+.filter-chip.active { background:var(--navy); color:white; border-color:var(--navy); }
+.filter-sep { width:1px; height:14px; background:var(--border); margin:0 3px; flex-shrink:0; }
+
+.articles-list { display:flex; flex-direction:column; gap:2px; padding:16px 28px; }
+.article-item {
+  background:var(--white); border:1px solid var(--border);
+  padding:14px 16px; display:grid; grid-template-columns:auto 1fr auto;
+  gap:13px; align-items:start; cursor:pointer; transition:all 0.12s; border-radius:2px;
+}
+.article-item:hover { border-color:var(--navy); box-shadow:var(--shadow); z-index:1; position:relative; }
+.article-cb {
+  width:16px; height:16px; border:1.5px solid var(--border);
+  border-radius:2px; margin-top:2px; flex-shrink:0; cursor:pointer; transition:all 0.12s;
+}
+.article-cb:hover { border-color:var(--navy); }
+.article-cb.checked {
+  background:var(--navy); border-color:var(--navy);
+  background-image:url("data:image/svg+xml,%3Csvg width='10' height='8' viewBox='0 0 10 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 4L3.5 6.5L9 1' stroke='white' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:center;
+}
+.article-src { display:flex; align-items:center; gap:7px; margin-bottom:3px; }
+.src-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.src-name { font-size:11px; color:var(--ink-faint); }
+.article-rubrique {
+  font-size:11px; padding:1px 6px; background:var(--surface);
+  border-radius:2px; color:var(--ink-light); border:1px solid var(--border-soft);
+}
+.article-title { font-family:'Source Serif 4',serif; font-size:15px; font-weight:400; line-height:1.4; margin-bottom:4px; }
+.article-desc {
+  font-size:12px; color:var(--ink-light); line-height:1.6;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
+.article-date { font-size:11px; color:var(--ink-faint); white-space:nowrap; text-align:right; padding-top:2px; }
+.articles-footer {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 28px; background:var(--white);
+  border-top:1px solid var(--border); position:sticky; bottom:0;
+}
+.selection-info { font-size:12px; color:var(--ink-faint); }
+.export-btns { display:flex; gap:8px; }
+
+/* ── EMPTY STATE ── */
+.empty-state {
+  display:flex; flex-direction:column; align-items:center;
+  justify-content:center; padding:60px 20px; text-align:center; gap:14px;
+}
+.empty-state svg { opacity:0.25; }
+.empty-state h3 { font-family:'Source Serif 4',serif; font-size:20px; font-weight:400; color:var(--ink-light); }
+.empty-state p  { font-size:13px; color:var(--ink-faint); max-width:320px; line-height:1.6; }
+
+
+/* ── MODAL ── */
+.modal-overlay {
+  position:fixed; inset:0; background:rgba(27,58,107,0.45);
+  display:flex; align-items:center; justify-content:center;
+  z-index:1000; backdrop-filter:blur(2px);
+}
+.modal-overlay.hidden { display:none !important; }
+.modal {
+  background:var(--white); border-radius:var(--radius);
+  padding:28px 28px 24px; width:480px; max-width:95vw;
+  box-shadow:var(--shadow-lg); position:relative;
+}
+.modal-title { font-family:'Source Serif 4',serif; font-size:18px; margin-bottom:4px; }
+.modal-desc  { font-size:12px; color:var(--ink-faint); margin-bottom:20px; }
+.modal-close {
+  position:absolute; top:14px; right:16px;
+  background:none; border:none; font-size:22px; color:var(--ink-faint);
+  cursor:pointer; line-height:1; transition:color 0.12s;
+}
+.modal-close:hover { color:var(--ink); }
+.modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:20px; }
+
+/* ── PAGE COMPTE ── */
+.account-avatar-row {
+  display:flex; align-items:center; gap:20px; margin-bottom:24px;
+}
+.account-avatar-big {
+  width:64px; height:64px; border-radius:50%;
+  background:var(--orange); color:white;
+  display:flex; align-items:center; justify-content:center;
+  font-size:22px; font-weight:700; flex-shrink:0;
 }
 
-run();
+
+/* ── AVATAR PICKER ── */
+.avatar-picker { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.avatar-opt {
+  width:44px; height:44px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-size:18px; cursor:pointer; border:3px solid transparent;
+  transition:all 0.15s;
+}
+.avatar-opt:hover { transform:scale(1.1); }
+.avatar-opt.selected { border-color:var(--navy); box-shadow:0 0 0 2px white, 0 0 0 4px var(--navy); }
+
+/* ── SPINNER ── */
+.spinner {
+  width:18px; height:18px; border:2px solid rgba(255,255,255,0.3);
+  border-top-color:white; border-radius:50%; animation:spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ── ANIMATIONS ── */
+@keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
+.page.active { animation:fadeIn 0.2s ease; }
+</style>
+<!-- Correction redirection lien magique -->
+<script>
+(function() {
+  const hash = window.location.hash;
+  const isRoot = window.location.pathname === '/' || window.location.pathname === '';
+  if (isRoot && hash && (hash.includes('access_token') || hash.includes('error'))) {
+    window.location.replace('https://bfbf-test.github.io/rcap/' + hash);
+  }
+})();
+</script>
+
+</head>
+<body>
+
+<!-- LOADER -->
+<div id="loader">
+  <div class="loader-logo"><span class="rc">RC</span><em>ap</em></div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- ════════════════════════════════════════
+     ÉCRAN LOGIN
+════════════════════════════════════════ -->
+<div id="screen-login" class="hidden">
+  <div class="login-orb login-orb-1"></div>
+  <div class="login-orb login-orb-2"></div>
+  <div class="login-card">
+    <div class="login-logo"><span class="rc">RC</span><span class="ap">ap</span></div>
+    <div class="login-tagline">Votre espace de veille</div>
+
+    <div class="form-group">
+      <label>Adresse email</label>
+      <input id="login-email" type="email" placeholder="prenom.nom@reseau-canope.fr" autocomplete="email">
+    </div>
+    <div class="form-group">
+      <label>Mot de passe</label>
+      <input id="login-password" type="password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button id="btn-login" class="btn btn-primary btn-full" style="margin-top:4px;" onclick="doLogin()">
+      Se connecter →
+    </button>
+
+    <div class="login-footer">Accès sur invitation. <a href="/cdn-cgi/l/email-protection#6f0e0b0206012f1d0a1c0a0e1a420c0e01001f0a41091d" style="color:var(--navy);">Contacter l'administrateur</a></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     APPLICATION PRINCIPALE
+════════════════════════════════════════ -->
+<div id="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo"><span class="rc">RC</span><span class="ap">ap</span></div>
+      <div class="user-badge">
+        <div class="user-avatar" id="sidebar-avatar">?</div>
+        <div>
+          <div class="user-name" id="sidebar-name">—</div>
+          <div class="user-email" id="sidebar-email">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="sidebar-personal-section" class="sidebar-section">
+      <div class="sidebar-section-title">Mes espaces</div>
+      <div id="sidebar-personal-items"></div>
+      <div class="sidebar-add" onclick="showCreate()">
+        <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        Nouvel espace personnel
+      </div>
+    </div>
+
+    <div id="sidebar-teams-container"></div>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-link" onclick="showPage('account')"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="4.5" r="2.5" stroke="currentColor" stroke-width="1.3"/><path d="M2 12c0-2.2 2.2-4 5-4s5 1.8 5 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg> Mon compte</div>
+      <div class="sidebar-footer-link" onclick="showPage('teams')">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="5" cy="5" r="2.5" stroke="currentColor" stroke-width="1.3"/><circle cx="9.5" cy="5" r="2.5" stroke="currentColor" stroke-width="1.3"/><path d="M1 12c0-2 1.8-3.5 4-3.5M7 12c0-2 1.8-3.5 4-3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Gérer les équipes
+      </div>
+      <div class="sidebar-footer-link hidden" id="sidebar-admin-link" onclick="showPage('admin')" style="color:#f47920;">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M4 7h6M4 4.5h6M4 9.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Administration
+      </div>
+      <div class="sidebar-footer-link" onclick="doLogout()">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 7h7M9.5 4.5L12 7l-2.5 2.5M2 2v10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Déconnexion
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div class="topbar-title" id="topbar-title">Tableau de bord</div>
+      <div class="topbar-actions" id="topbar-actions">
+        <button class="btn btn-accent btn-sm" onclick="showCreate()">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v8M2 6h8" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Nouvel espace
+        </button>
+      </div>
+    </div>
+
+    <!-- ── PAGE : DASHBOARD ── -->
+    <div id="page-dashboard" class="page main-content">
+
+      <div class="section-label perso">Mes espaces personnels</div>
+      <div class="cards-grid" id="grid-personal">
+        <div class="watchlist-card card-new" onclick="showCreate()">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M11 4v14M4 11h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>Créer un espace personnel</span>
+        </div>
+      </div>
+
+      <div id="team-groups-container"></div>
+
+    </div>
+
+    <!-- ── PAGE : CRÉER UN ESPACE ── -->
+    <div id="page-create" class="page main-content">
+      <div class="form-container">
+
+        <div class="form-section">
+          <div class="form-section-title">Informations générales</div>
+          <div class="form-section-desc">Nommez votre espace pour le retrouver dans la barre latérale.</div>
+          <div class="form-group">
+            <label>Nom de l'espace *</label>
+            <input id="create-name" type="text" placeholder="Ex : Veille réglementaire">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label>Description <span style="font-style:italic;text-transform:none;letter-spacing:0;color:var(--ink-faint)">(optionnel)</span></label>
+            <textarea id="create-desc" placeholder="Objectif de cet espace de veille…"></textarea>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">Portée</div>
+          <div class="form-section-desc">Personnel = visible par vous seul. Équipe = partagé avec les membres choisis.</div>
+          <div class="scope-grid">
+            <div class="scope-opt perso selected" id="scope-perso" onclick="selectScope('personal')">
+              <div class="scope-icon">👤</div>
+              <div class="scope-label">Personnel</div>
+              <div class="scope-desc">Visible par moi uniquement</div>
+            </div>
+            <div class="scope-opt team" id="scope-team" onclick="selectScope('team')">
+              <div class="scope-icon">👥</div>
+              <div class="scope-label">Équipe</div>
+              <div class="scope-desc">Partagé avec mon équipe</div>
+            </div>
+          </div>
+          <div class="team-selector" id="team-selector">
+            <label style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-light);font-weight:500;">Choisir une équipe</label>
+            <div class="team-chips" id="team-chips-list"></div>
+            <div style="margin-top:12px;">
+              <div style="display:flex;gap:8px;">
+                <input id="new-team-input" type="text" placeholder="Nom de la nouvelle équipe…"
+                  style="flex:1;padding:8px 11px;border:1.5px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;"
+                  onkeydown="if(event.key==='Enter') createTeam()">
+                <button class="btn btn-ghost btn-sm" onclick="createTeam()">Créer</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">Sources RSS</div>
+          <div class="form-section-desc">Ajoutez les flux à surveiller. Les mots-clés filtrent les articles — seuls ceux qui les contiennent sont archivés.</div>
+          <div id="feeds-container"></div>
+          <button class="add-feed-btn" onclick="addFeedBlock()">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 2v9M2 6.5h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            Ajouter un flux RSS
+          </button>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">Fréquence de mise à jour</div>
+          <div class="form-section-desc">Le workflow GitHub Actions collectera les articles selon ce rythme.</div>
+          <div class="form-group" style="margin:0">
+            <label>Fréquence</label>
+            <select id="create-frequency">
+              <option value="3x_day">3 fois par jour — 8h, 14h, 20h (recommandé)</option>
+              <option value="2x_day">2 fois par jour — 8h et 18h</option>
+              <option value="1x_day">1 fois par jour — 8h</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-ghost" onclick="showPage('dashboard')">Annuler</button>
+          <button id="btn-create" class="btn btn-accent" onclick="createWatchlist()">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 6.5l3 3 6-5.5" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Créer l'espace
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── PAGE : ARTICLES ── -->
+    <div id="page-articles" class="page" style="display:flex;flex-direction:column;height:calc(100vh - 53px);">
+
+      <div class="filter-bar" id="filter-bar">
+        <span class="filter-label">Source :</span>
+        <div class="filter-chip active" onclick="filterSource(this, null)">Toutes</div>
+        <!-- rempli dynamiquement -->
+        <div class="filter-sep"></div>
+        <span class="filter-label">Période :</span>
+        <div class="filter-chip active" onclick="filterPeriod(this, 7)">7 jours</div>
+        <div class="filter-chip" onclick="filterPeriod(this, 30)">30 jours</div>
+        <div class="filter-chip" onclick="filterPeriod(this, 90)">3 mois</div>
+        <div class="filter-chip" onclick="filterPeriod(this, 0)">Tout</div>
+      </div>
+
+      <div class="articles-list" id="articles-list" style="flex:1;overflow-y:auto;"></div>
+
+      <div class="articles-footer">
+        <div class="selection-info" id="selection-info">0 article sélectionné</div>
+        <div class="export-btns">
+          <button class="btn btn-ghost btn-sm" onclick="selectAll()">Tout sélectionner</button>
+          <div style="position:relative;display:inline-block;">
+            <button class="btn btn-ghost btn-sm" onclick="toggleExportMenu(event)" id="export-btn">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 2v7M3.5 6l3 3 3-3M1 11h11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+              Exporter ▾
+            </button>
+            <div id="export-menu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:white;border:1.5px solid var(--border);border-radius:var(--radius);box-shadow:0 4px 16px rgba(0,0,0,.1);min-width:160px;z-index:100;">
+              <div onclick="exportCSV()"     style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;gap:8px;align-items:center;" onmouseover="this.style.background='#f5f7fa'" onmouseout="this.style.background=''">CSV</div>
+              <div onclick="exportJSON()"    style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;gap:8px;align-items:center;" onmouseover="this.style.background='#f5f7fa'" onmouseout="this.style.background=''">JSON</div>
+              <div onclick="exportMarkdown()" style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;gap:8px;align-items:center;" onmouseover="this.style.background='#f5f7fa'" onmouseout="this.style.background=''">Markdown</div>
+              <div onclick="exportOPML()"    style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;gap:8px;align-items:center;" onmouseover="this.style.background='#f5f7fa'" onmouseout="this.style.background=''">OPML</div>
+              <div onclick="exportBookmarks()" style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;gap:8px;align-items:center;" onmouseover="this.style.background='#f5f7fa'" onmouseout="this.style.background=''">Favoris HTML</div>
+              <div onclick="exportBibTeX()"  style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;gap:8px;align-items:center;" onmouseover="this.style.background='#f5f7fa'" onmouseout="this.style.background=''">BibTeX</div>
+              <div onclick="exportRSS()"     style="padding:9px 14px;font-size:13px;cursor:pointer;display:flex;gap:8px;align-items:center;" onmouseover="this.style.background='#f5f7fa'" onmouseout="this.style.background=''">XML/RSS</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ── PAGE : COMPTE ── -->
+    <div id="page-account" class="page main-content">
+      <div class="form-container">
+        <div class="form-section">
+          <div class="form-section-title">Mon profil</div>
+          <div class="account-avatar-row">
+            <div class="account-avatar-big" id="account-avatar-big">?</div>
+            <div>
+              <div style="font-size:14px;font-weight:500;" id="account-display-name">—</div>
+              <div style="font-size:12px;color:var(--ink-faint);" id="account-email">—</div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Nom affiché</label>
+            <input id="account-name-input" type="text" placeholder="Prénom Nom">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Avatar</label>
+            <div class="avatar-picker" id="avatar-picker"></div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+            <button class="btn btn-primary" onclick="saveDisplayName()">Enregistrer</button>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section-title">Changer le mot de passe</div>
+          <div class="form-group">
+            <label>Nouveau mot de passe</label>
+            <input id="account-pw1" type="password" placeholder="••••••••">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label>Confirmer le mot de passe</label>
+            <input id="account-pw2" type="password" placeholder="••••••••">
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+            <button class="btn btn-primary" onclick="savePassword()">Changer le mot de passe</button>
+          </div>
+        </div>
+
+        <div class="form-section" style="border:1.5px solid #fee2e2;background:#fff8f8;">
+          <div class="form-section-title" style="color:var(--danger);">Supprimer mon compte</div>
+          <p style="font-size:13px;color:var(--ink-faint);margin-bottom:16px;">
+            Cette action est irréversible. Tous vos espaces personnels, flux et articles associés seront définitivement supprimés. Les espaces d'équipe que vous avez créés seront également supprimés.
+          </p>
+          <div style="display:flex;justify-content:flex-end;">
+            <button class="btn btn-danger" onclick="openDeleteAccountModal()">Supprimer mon compte</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ── PAGE : ADMIN ── -->
+    <div id="page-admin" class="page main-content">
+      <div class="form-container" style="max-width:900px;">
+
+        <!-- Stats globales -->
+        <div class="form-section">
+          <div class="form-section-title">Vue d'ensemble</div>
+          <div id="admin-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:4px;">
+            <div class="admin-stat-card" id="stat-users"><div class="stat-val">—</div><div class="stat-lbl">Utilisateurs</div></div>
+            <div class="admin-stat-card" id="stat-spaces"><div class="stat-val">—</div><div class="stat-lbl">Espaces</div></div>
+            <div class="admin-stat-card" id="stat-teams"><div class="stat-val">—</div><div class="stat-lbl">Équipes</div></div>
+            <div class="admin-stat-card" id="stat-articles"><div class="stat-val">—</div><div class="stat-lbl">Articles</div></div>
+          </div>
+        </div>
+
+        <!-- Onglets -->
+        <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0;">
+          <button class="admin-tab active" id="tab-users" onclick="showAdminTab('users')">Utilisateurs</button>
+          <button class="admin-tab" id="tab-spaces" onclick="showAdminTab('spaces')">Espaces</button>
+          <button class="admin-tab" id="tab-teams-admin" onclick="showAdminTab('teams-admin')">Équipes</button>
+        </div>
+
+        <!-- Contenu onglets -->
+        <div id="admin-tab-users"></div>
+        <div id="admin-tab-spaces" style="display:none;"></div>
+        <div id="admin-tab-teams-admin" style="display:none;"></div>
+
+      </div>
+    </div>
+
+    <!-- ── PAGE : ÉQUIPES ── -->
+    <div id="page-teams" class="page main-content">
+      <div class="form-container">
+        <div class="form-section">
+          <div class="form-section-title">Mes équipes</div>
+          <div class="form-section-desc">Créez des équipes et invitez des collègues par email.</div>
+          <div id="teams-list" style="margin-bottom:16px;"></div>
+          <div style="display:flex;gap:8px;">
+            <input id="team-name-input" type="text" placeholder="Nom de la nouvelle équipe…"
+              style="flex:1;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;"
+              onkeydown="if(event.key==='Enter') createTeamFromPage()">
+            <button class="btn btn-accent" onclick="createTeamFromPage()">Créer une équipe</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ════════════════════════════════════════
+     JAVASCRIPT
+════════════════════════════════════════ -->
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+// ─────────────────────────────────────────
+// CONFIG — remplace ces deux valeurs
+// ─────────────────────────────────────────
+const SUPABASE_URL  = 'https://rmoptpqbcmqxtijuaxbr.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJtb3B0cHFiY21xeHRpanVheGJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTAzNjEsImV4cCI6MjA4ODY2NjM2MX0.EFxmW4-EdKPi207T8mT6IriE-IA5Ct2X168l2Gawz2w';
+
+// ─────────────────────────────────────────
+// INIT SUPABASE
+// ─────────────────────────────────────────
+const { createClient } = supabase;
+// Helper : récupère le token depuis localStorage
+function getToken() {
+  try {
+    const s = localStorage.getItem('rcap-auth');
+    return s ? JSON.parse(s).access_token : null;
+  } catch { return null; }
+}
+
+// Helper : appel API Supabase avec fetch natif (contourne les problèmes de lock)
+async function sbFetch(path, options = {}) {
+  const token = getToken();
+  const { headers: _ignore, ...restOptions } = options;
+  const headers = {
+    'apikey': SUPABASE_ANON,
+    'Authorization': 'Bearer ' + (token || SUPABASE_ANON),
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation',
+  };
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, { ...restOptions, headers });
+  if (!res.ok && res.status !== 404) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || err.hint || `HTTP ${res.status}`);
+  }
+  if (res.status === 204) return [];
+  return res.json().catch(() => []);
+}
+
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: {
+    storage: window.localStorage,
+    storageKey: 'rcap-auth',
+    flowType: 'implicit',
+    detectSessionInUrl: true,
+    persistSession: true,
+    autoRefreshToken: true,
+  }
+});
+
+// ─────────────────────────────────────────
+// ÉTAT GLOBAL
+// ─────────────────────────────────────────
+let currentUser      = null;
+let currentWatchlist = null;   // watchlist ouverte dans articles
+let allArticles      = [];     // articles chargés
+let activeFeedFilter = null;   // null = toutes les sources
+let activePeriod     = 7;      // jours
+let selectedIds      = new Set();
+let userTeams        = [];     // équipes de l'utilisateur
+let selectedTeamId   = null;   // équipe choisie dans le formulaire
+let currentScope     = 'personal';
+let feedCount        = 0;
+let srcColors        = {};     // url → couleur pour les dots sources
+
+const COLORS = ['#1b3a6b','#f47920','#2a5298','#c95e08','#16a34a','#7c3aed','#0891b2','#dc2626'];
+
+// ─────────────────────────────────────────
+// UTILITAIRES
+// ─────────────────────────────────────────
+function toast(msg, isError = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.className = '', 3000);
+}
+
+function icon(path, size = 14) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" fill="none"><path d="${path}" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`;
+}
+
+function initials(name = '') {
+  return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?';
+}
+
+function relativeDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diff = Math.floor((now - d) / 86400000);
+  if (diff === 0) return `Aujourd'hui ${d.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'})}`;
+  if (diff === 1) return `Hier ${d.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'})}`;
+  return d.toLocaleDateString('fr-FR', {day:'2-digit', month:'2-digit'});
+}
+
+// ─────────────────────────────────────────
+// AUTH
+// ─────────────────────────────────────────
+async function doLogin() {
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!email || !password) { toast('Email et mot de passe requis', true); return; }
+
+  const btn = document.getElementById('btn-login');
+  btn.innerHTML = '<div class="spinner"></div> Connexion…';
+  btn.disabled = true;
+
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) {
+    toast('Email ou mot de passe incorrect', true);
+    btn.innerHTML = 'Se connecter →';
+    btn.disabled = false;
+  }
+  // Si succès → onAuthStateChange prend le relais
+}
+
+async function doMagicLink() {
+  const email = document.getElementById('login-email').value.trim();
+  if (!email) { toast("Entrez votre email d'abord", true); return; }
+  const { error } = await sb.auth.signInWithOtp({ email });
+  if (error) toast(error.message, true);
+  else toast(`Lien envoyé à ${email} — vérifiez vos emails`);
+}
+
+async function doLogout() {
+  await sb.auth.signOut();
+}
+
+// ─────────────────────────────────────────
+// NAVIGATION
+// ─────────────────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.remove('active');
+    p.style.display = 'none';
+  });
+  const p = document.getElementById('page-' + name);
+  if (p) {
+    p.classList.add('active');
+    // Restaurer le display correct selon la page
+    if (name === 'articles') p.style.display = 'flex';
+    else p.style.display = '';
+  }
+
+  // Topbar
+  const titles = {
+    dashboard: 'Tableau de bord',
+    create: 'Créer un <em>espace de veille</em>',
+    teams: 'Gérer les <em>équipes</em>',
+    account: 'Mon <em>compte</em>',
+    admin: '<em>Administration</em>',
+  };
+  if (name in titles) {
+    document.getElementById('topbar-title').innerHTML = titles[name];
+    document.getElementById('topbar-actions').innerHTML = name === 'dashboard'
+      ? `<button class="btn btn-accent btn-sm" onclick="showCreate()"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v8M2 6h8" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg> Nouvel espace</button>`
+      : (name === 'create' ? `<button class="btn btn-ghost btn-sm" onclick="showPage('dashboard')">Annuler</button>` : '');
+  }
+  if (name === 'account') initAccountPage();
+  if (name === 'teams') loadTeamsPage();
+  if (name === 'admin') loadAdminPage();
+
+  // Sidebar actif
+  document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+}
+
+function showCreate() {
+  initCreateForm();
+  showPage('create');
+}
+
+// ─────────────────────────────────────────
+// CHARGEMENT DONNÉES
+// ─────────────────────────────────────────
+async function loadAll() {
+  await loadTeams();
+  await loadDashboard();
+  await loadTeamsPage();
+}
+
+async function loadTeams() {
+  const data = await sbFetch(
+    `team_members?select=team_id,role,teams(id,name)&user_id=eq.${currentUser.id}`
+  ).catch(() => []);
+  userTeams = (data || []).map(r => ({ ...r.teams, role: r.role }));
+}
+
+async function loadDashboard() {
+  const watchlists = await sbFetch(
+    'watchlists?select=*,feeds(id,label,url)&order=created_at.desc'
+  ).catch(() => []);
+
+  if (!watchlists || !watchlists.length) {
+    renderPersonalGrid([], {});
+    renderTeamGroups({}, {});
+    renderSidebar([], {});
+    return;
+  }
+
+  // Compter les articles récents par watchlist
+  const counts = {};
+  const since = new Date();
+  since.setDate(since.getDate() - 7);
+  const recent = await sbFetch(
+    `articles?select=watchlist_id&published_at=gte.${since.toISOString()}`
+  ).catch(() => []);
+
+  (recent || []).forEach(a => {
+    counts[a.watchlist_id] = (counts[a.watchlist_id] || 0) + 1;
+  });
+
+  // Séparer perso / équipe
+  const personal = watchlists.filter(w => w.scope === 'personal');
+  const byTeam   = {};
+  watchlists.filter(w => w.scope === 'team').forEach(w => {
+    if (!byTeam[w.team_id]) byTeam[w.team_id] = [];
+    byTeam[w.team_id].push(w);
+  });
+
+  renderPersonalGrid(personal, counts);
+  renderTeamGroups(byTeam, counts);
+  renderSidebar(personal, byTeam);
+}
+
+// ─────────────────────────────────────────
+// RENDU DASHBOARD
+// ─────────────────────────────────────────
+function renderPersonalGrid(watchlists, counts) {
+  const grid = document.getElementById('grid-personal');
+  grid.innerHTML = '';
+  watchlists.forEach(w => grid.appendChild(makeCard(w, counts)));
+  // Bouton "créer"
+  const add = document.createElement('div');
+  add.className = 'watchlist-card card-new';
+  add.innerHTML = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M11 4v14M4 11h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Créer un espace personnel</span>`;
+  add.onclick = showCreate;
+  grid.appendChild(add);
+}
+
+function renderTeamGroups(byTeam, counts) {
+  const container = document.getElementById('team-groups-container');
+  container.innerHTML = '';
+  if (Object.keys(byTeam).length === 0) return;
+
+  const label = document.createElement('div');
+  label.className = 'section-label team';
+  label.textContent = 'Espaces d\'équipe';
+  container.appendChild(label);
+
+  Object.entries(byTeam).forEach(([teamId, watchlists]) => {
+    const team = userTeams.find(t => t.id === teamId) || { name: 'Équipe' };
+    const group = document.createElement('div');
+    group.className = 'team-group';
+    const header = `<div class="team-header"><div class="team-name-label">${team.name}</div></div>`;
+    group.innerHTML = header;
+    const grid = document.createElement('div');
+    grid.className = 'cards-grid';
+    watchlists.forEach(w => grid.appendChild(makeCard(w, counts)));
+    group.appendChild(grid);
+    container.appendChild(group);
+  });
+}
+
+function makeCard(w, counts) {
+  const card = document.createElement('div');
+  card.className = `watchlist-card ${w.scope === 'team' ? 'team' : 'perso'}`;
+  card.onclick = () => openWatchlist(w);
+  const feeds = (w.feeds || []).slice(0, 3);
+  const extra  = (w.feeds || []).length - 3;
+  const chips  = feeds.map(f => `<span class="feed-chip">${f.label || f.url}</span>`).join('');
+  const moreChip = extra > 0 ? `<span class="feed-chip">+${extra} flux</span>` : '';
+  const count = counts[w.id] || 0;
+  card.innerHTML = `
+    <div class="card-header">
+      <div class="card-name">${w.name}</div>
+      <span class="badge ${w.scope === 'team' ? 'badge-team' : 'badge-perso'}">${w.scope === 'team' ? 'Équipe' : 'Perso'}</span>
+    </div>
+    <div class="card-feeds">${chips}${moreChip}</div>
+    <div class="card-meta">
+      <span><span class="card-meta-count">${count}</span> articles (7j)</span>
+      <span>${w.feeds?.length || 0} flux RSS</span>
+    </div>`;
+  return card;
+}
+
+function renderSidebar(personal, byTeam) {
+  // Perso
+  const pi = document.getElementById('sidebar-personal-items');
+  pi.innerHTML = '';
+  personal.forEach(w => {
+    const item = document.createElement('div');
+    item.className = 'sidebar-item';
+    item.dataset.wid = w.id;
+    item.innerHTML = `<span class="item-dot dot-perso"></span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${w.name}</span>`;
+    item.onclick = () => openWatchlist(w);
+    pi.appendChild(item);
+  });
+
+  // Équipes
+  const tc = document.getElementById('sidebar-teams-container');
+  tc.innerHTML = '';
+  Object.entries(byTeam).forEach(([teamId, watchlists]) => {
+    const team = userTeams.find(t => t.id === teamId) || { name: 'Équipe' };
+    const sec = document.createElement('div');
+    sec.className = 'sidebar-section';
+    let html = `<div class="sidebar-section-title">${team.name}</div>`;
+    watchlists.forEach(w => {
+      html += `<div class="sidebar-item" data-wid="${w.id}" onclick="openWatchlist(${JSON.stringify(w).replace(/"/g,'&quot;')})">
+        <span class="item-dot dot-team"></span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${w.name}</span>
+      </div>`;
+    });
+    html += `<div class="sidebar-add" onclick="showCreate()">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Partager un espace
+    </div>`;
+    sec.innerHTML = html;
+    tc.appendChild(sec);
+    const div = document.createElement('div');
+    div.className = 'sidebar-divider';
+    tc.appendChild(div);
+  });
+}
+
+// ─────────────────────────────────────────
+// ARTICLES
+// ─────────────────────────────────────────
+async function openWatchlist(w) {
+  currentWatchlist = w;
+  selectedIds.clear();
+  activeFeedFilter = null;
+  activePeriod = 7;
+  allArticles = [];
+
+  // Topbar
+  document.getElementById('topbar-title').innerHTML = `<em>${w.name}</em>`;
+  const isOwner = currentWatchlist.owner_id === currentUser.id;
+  const isTeam  = currentWatchlist.scope === 'team';
+  let actionBtns = '';
+  if (isOwner) {
+    actionBtns += `<button class="btn btn-ghost btn-sm" onclick="openEditModal()">Modifier</button>`;
+    actionBtns += `<button class="btn btn-danger btn-sm" onclick="openDeleteModal()">Supprimer</button>`;
+  } else if (isTeam) {
+    actionBtns += `<button class="btn btn-ghost btn-sm" onclick="duplicateToPersonal()">Dupliquer en perso</button>`;
+    actionBtns += `<button class="btn btn-danger btn-sm" onclick="leaveTeamSpace()">Quitter</button>`;
+  }
+  document.getElementById('topbar-actions').innerHTML = `
+    <div class="search-box">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 9.5L12.5 12.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      <input type="text" placeholder="Rechercher…" oninput="searchArticles(this.value)">
+    </div>
+    ${actionBtns}
+    <button class="btn btn-ghost btn-sm" onclick="showPage('dashboard')">← Retour</button>`;
+
+  // Sidebar actif
+  document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+  document.querySelectorAll(`[data-wid="${w.id}"]`).forEach(i => i.classList.add('active'));
+
+  // Filtre sources
+  await buildSourceFilters(w);
+  await fetchArticles();
+
+  showPage('articles');
+}
+
+async function buildSourceFilters(w) {
+  const bar = document.getElementById('filter-bar');
+  const feeds = await sbFetch(`feeds?select=id,label,url&watchlist_id=eq.${w.id}`).catch(() => []);
+  srcColors = {};
+  (feeds || []).forEach((f, i) => { srcColors[f.id] = COLORS[i % COLORS.length]; });
+
+  bar.innerHTML = `<span class="filter-label">Source :</span>
+    <div class="filter-chip active" onclick="filterSource(this, null)">Toutes</div>`;
+  (feeds || []).forEach(f => {
+    const chip = document.createElement('div');
+    chip.className = 'filter-chip';
+    chip.textContent = f.label || f.url;
+    chip.onclick = () => filterSource(chip, f.id);
+    bar.appendChild(chip);
+  });
+  bar.innerHTML += `<div class="filter-sep"></div>
+    <span class="filter-label">Période :</span>
+    <div class="filter-chip active" onclick="filterPeriod(this,7)">7 jours</div>
+    <div class="filter-chip" onclick="filterPeriod(this,30)">30 jours</div>
+    <div class="filter-chip" onclick="filterPeriod(this,90)">3 mois</div>
+    <div class="filter-chip" onclick="filterPeriod(this,0)">Tout</div>`;
+}
+
+async function fetchArticles() {
+  const list = document.getElementById('articles-list');
+  list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--ink-faint);">Chargement…</div>';
+
+  let qs = `articles?select=*,feeds(id,label,url)&watchlist_id=eq.${currentWatchlist.id}&order=published_at.desc&limit=200`;
+  if (activeFeedFilter) qs += `&feed_id=eq.${activeFeedFilter}`;
+  if (activePeriod > 0) {
+    const since = new Date();
+    since.setDate(since.getDate() - activePeriod);
+    qs += `&published_at=gte.${since.toISOString()}`;
+  }
+  const data = await sbFetch(qs).catch(() => null);
+  if (!data) { toast('Erreur chargement articles', true); return; }
+  allArticles = data;
+  renderArticles(allArticles);
+}
+
+function renderArticles(articles) {
+  const list = document.getElementById('articles-list');
+  list.innerHTML = '';
+
+  if (articles.length === 0) {
+    list.innerHTML = `<div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><rect x="8" y="8" width="32" height="32" rx="4" stroke="currentColor" stroke-width="2"/><path d="M16 20h16M16 28h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <h3>Aucun article</h3>
+      <p>Les articles apparaîtront ici après la prochaine exécution du workflow GitHub Actions.</p>
+    </div>`;
+    return;
+  }
+
+  articles.forEach(a => {
+    const item = document.createElement('div');
+    item.className = 'article-item';
+    const color = srcColors[a.feed_id] || '#9098b8';
+    const checked = selectedIds.has(a.id) ? 'checked' : '';
+    item.innerHTML = `
+      <div class="article-cb ${checked}" onclick="toggleSelect(event,'${a.id}')"></div>
+      <div>
+        <div class="article-src">
+          <span class="src-dot" style="background:${color}"></span>
+          <span class="src-name">${a.feeds?.label || a.feeds?.url || '—'}</span>
+          ${a.rubrique ? `<span class="article-rubrique">${a.rubrique}</span>` : ''}
+        </div>
+        <div class="article-title">${a.title}</div>
+        ${a.description ? `<div class="article-desc">${a.description}</div>` : ''}
+      </div>
+      <div class="article-date">${relativeDate(a.published_at)}</div>`;
+    item.querySelector('.article-title').onclick = () => window.open(a.url, '_blank');
+    list.appendChild(item);
+  });
+  updateSelectionInfo();
+}
+
+function filterSource(el, feedId) {
+  document.querySelectorAll('#filter-bar .filter-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  activeFeedFilter = feedId;
+  fetchArticles();
+}
+
+function filterPeriod(el, days) {
+  // Désactiver seulement les chips de période
+  const bar = document.getElementById('filter-bar');
+  bar.querySelectorAll('.filter-chip').forEach(c => {
+    if (['7 jours','30 jours','3 mois','Tout'].includes(c.textContent)) c.classList.remove('active');
+  });
+  el.classList.add('active');
+  activePeriod = days;
+  fetchArticles();
+}
+
+function searchArticles(query) {
+  if (!query.trim()) { renderArticles(allArticles); return; }
+  const q = query.toLowerCase();
+  renderArticles(allArticles.filter(a =>
+    a.title?.toLowerCase().includes(q) || a.description?.toLowerCase().includes(q)
+  ));
+}
+
+function toggleSelect(e, id) {
+  e.stopPropagation();
+  const cb = e.currentTarget;
+  if (selectedIds.has(id)) { selectedIds.delete(id); cb.classList.remove('checked'); }
+  else { selectedIds.add(id); cb.classList.add('checked'); }
+  updateSelectionInfo();
+}
+
+function selectAll() {
+  const all = document.querySelectorAll('.article-cb');
+  const addAll = selectedIds.size < allArticles.length;
+  allArticles.forEach(a => { if (addAll) selectedIds.add(a.id); else selectedIds.delete(a.id); });
+  all.forEach(cb => cb.classList.toggle('checked', addAll));
+  updateSelectionInfo();
+}
+
+function updateSelectionInfo() {
+  const n = selectedIds.size;
+  document.getElementById('selection-info').textContent =
+    n === 0 ? 'Aucun article sélectionné'
+    : `${n} article${n > 1 ? 's' : ''} sélectionné${n > 1 ? 's' : ''}`;
+}
+
+function toggleExportMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('export-menu');
+  if (menu.style.display === 'block') { menu.style.display = 'none'; return; }
+  const btn = document.getElementById('export-btn');
+  const rect = btn.getBoundingClientRect();
+  const menuHeight = 280;
+  const top = rect.bottom + menuHeight > window.innerHeight
+    ? rect.top - menuHeight
+    : rect.bottom + 4;
+  menu.style.cssText = `display:block;position:fixed;top:${top}px;right:${window.innerWidth - rect.right}px;background:white;border:1.5px solid var(--border);border-radius:var(--radius);box-shadow:0 4px 16px rgba(0,0,0,.12);min-width:160px;z-index:9999;`;
+  setTimeout(() => {
+    document.addEventListener('click', function handler() {
+      menu.style.display = 'none';
+      document.removeEventListener('click', handler);
+    });
+  }, 0);
+}
+
+function getSelectedArticles() {
+  return allArticles.filter(a => selectedIds.has(a.id));
+}
+
+function exportCSV() {
+  const arts = getSelectedArticles();
+  if (!arts.length) { toast('Sélectionnez des articles à exporter', true); return; }
+  const header = 'Titre;Source;Date;URL;Rubrique';
+  const rows = arts.map(a =>
+    `"${(a.title||'').replace(/"/g,'""')}";"${a.feeds?.label||''}";"${a.published_at||''}";"${a.url||''}";"${a.rubrique||''}"`
+  );
+  download(`rcap-export-${Date.now()}.csv`, '\uFEFF' + [header, ...rows].join('\n'), 'text/csv');
+  toast(`${arts.length} article(s) exporté(s) en CSV`);
+  document.getElementById('export-menu').style.display = 'none';
+}
+
+function exportJSON() {
+  const arts = getSelectedArticles();
+  if (!arts.length) { toast('Sélectionnez des articles à exporter', true); return; }
+  download(`rcap-export-${Date.now()}.json`, JSON.stringify(arts, null, 2), 'application/json');
+  toast(`${arts.length} article(s) exporté(s) en JSON`);
+  document.getElementById('export-menu').style.display = 'none';
+}
+
+function exportMarkdown() {
+  const arts = getSelectedArticles();
+  if (!arts.length) { toast('Sélectionnez des articles à exporter', true); return; }
+  const name = currentWatchlist?.name || 'RCap';
+  const date = new Date().toLocaleDateString('fr-FR');
+  let md = `# ${name} — export du ${date}\n\n`;
+  arts.forEach(a => {
+    const d = a.published_at ? new Date(a.published_at).toLocaleDateString('fr-FR') : '';
+    md += `## [${a.title || 'Sans titre'}](${a.url || ''})\n`;
+    md += `**Source :** ${a.feeds?.label || '—'}  |  **Date :** ${d}  |  **Rubrique :** ${a.rubrique || '—'}\n\n`;
+    if (a.description) md += `${a.description}\n\n`;
+    md += '---\n\n';
+  });
+  download(`rcap-export-${Date.now()}.md`, md, 'text/markdown');
+  toast(`${arts.length} article(s) exporté(s) en Markdown`);
+  document.getElementById('export-menu').style.display = 'none';
+}
+
+function exportOPML() {
+  const arts = getSelectedArticles();
+  if (!arts.length) { toast('Sélectionnez des articles à exporter', true); return; }
+  // OPML exporte les sources (flux), pas les articles
+  const sources = {};
+  arts.forEach(a => { if (a.feeds?.url) sources[a.feeds.url] = a.feeds.label || a.feeds.url; });
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0">\n  <head><title>${currentWatchlist?.name || 'RCap'}</title></head>\n  <body>\n`;
+  Object.entries(sources).forEach(([url, label]) => {
+    xml += `    <outline type="rss" text="${label}" title="${label}" xmlUrl="${url}"/>\n`;
+  });
+  xml += `  </body>\n</opml>`;
+  download(`rcap-sources-${Date.now()}.opml`, xml, 'text/xml');
+  toast(`${Object.keys(sources).length} source(s) exportée(s) en OPML`);
+  document.getElementById('export-menu').style.display = 'none';
+}
+
+function exportBookmarks() {
+  const arts = getSelectedArticles();
+  if (!arts.length) { toast('Sélectionnez des articles à exporter', true); return; }
+  const name = currentWatchlist?.name || 'RCap';
+  let html = `<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">\n<TITLE>Favoris RCap</TITLE>\n<H1>${name}</H1>\n<DL><p>\n`;
+  arts.forEach(a => {
+    const ts = a.published_at ? Math.floor(new Date(a.published_at).getTime()/1000) : '';
+    html += `  <DT><A HREF="${a.url||''}" ADD_DATE="${ts}">${a.title||'Sans titre'}</A>\n`;
+  });
+  html += `</DL><p>`;
+  download(`rcap-favoris-${Date.now()}.html`, html, 'text/html');
+  toast(`${arts.length} article(s) exporté(s) en Favoris HTML`);
+  document.getElementById('export-menu').style.display = 'none';
+}
+
+function exportBibTeX() {
+  const arts = getSelectedArticles();
+  if (!arts.length) { toast('Sélectionnez des articles à exporter', true); return; }
+  let bib = '';
+  arts.forEach((a, i) => {
+    const key = `rcap${Date.now()}${i}`;
+    const year = a.published_at ? new Date(a.published_at).getFullYear() : '';
+    const month = a.published_at ? new Date(a.published_at).getMonth()+1 : '';
+    bib += `@article{${key},\n`;
+    bib += `  title     = {${(a.title||'').replace(/[{}]/g,'')}},\n`;
+    bib += `  journal   = {${(a.feeds?.label||'').replace(/[{}]/g,'')}},\n`;
+    bib += `  year      = {${year}},\n`;
+    bib += `  month     = {${month}},\n`;
+    bib += `  url       = {${a.url||''}},\n`;
+    bib += `  note      = {${a.rubrique||''}}\n`;
+    bib += `}\n\n`;
+  });
+  download(`rcap-export-${Date.now()}.bib`, bib, 'text/plain');
+  toast(`${arts.length} article(s) exporté(s) en BibTeX`);
+  document.getElementById('export-menu').style.display = 'none';
+}
+
+function exportRSS() {
+  const arts = getSelectedArticles();
+  if (!arts.length) { toast('Sélectionnez des articles à exporter', true); return; }
+  const name = currentWatchlist?.name || 'RCap';
+  const date = new Date().toUTCString();
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0">\n  <channel>\n`;
+  xml += `    <title>${name}</title>\n    <description>Export RCap</description>\n    <pubDate>${date}</pubDate>\n`;
+  arts.forEach(a => {
+    const d = a.published_at ? new Date(a.published_at).toUTCString() : date;
+    xml += `    <item>\n`;
+    xml += `      <title><![CDATA[${a.title||''}]]></title>\n`;
+    xml += `      <link>${a.url||''}</link>\n`;
+    xml += `      <description><![CDATA[${a.description||''}]]></description>\n`;
+    xml += `      <source>${a.feeds?.label||''}</source>\n`;
+    xml += `      <pubDate>${d}</pubDate>\n`;
+    xml += `      <category>${a.rubrique||''}</category>\n`;
+    xml += `    </item>\n`;
+  });
+  xml += `  </channel>\n</rss>`;
+  download(`rcap-export-${Date.now()}.xml`, xml, 'application/rss+xml');
+  toast(`${arts.length} article(s) exporté(s) en XML/RSS`);
+  document.getElementById('export-menu').style.display = 'none';
+}
+
+function download(filename, content, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.download = filename;
+  a.click();
+}
+
+// ─────────────────────────────────────────
+// CRÉER UN ESPACE
+// ─────────────────────────────────────────
+function initCreateForm() {
+  document.getElementById('create-name').value = '';
+  document.getElementById('create-desc').value = '';
+  document.getElementById('create-frequency').value = '3x_day';
+  document.getElementById('feeds-container').innerHTML = '';
+  feedCount = 0;
+  currentScope = 'personal';
+  selectedTeamId = null;
+  document.getElementById('scope-perso').classList.add('selected');
+  document.getElementById('scope-team').classList.remove('selected');
+  document.getElementById('team-selector').classList.remove('visible');
+  addFeedBlock();
+  renderTeamChips();
+}
+
+function selectScope(scope) {
+  currentScope = scope;
+  document.getElementById('scope-perso').classList.toggle('selected', scope === 'personal');
+  document.getElementById('scope-team').classList.toggle('selected', scope === 'team');
+  document.getElementById('team-selector').classList.toggle('visible', scope === 'team');
+}
+
+function renderTeamChips() {
+  const container = document.getElementById('team-chips-list');
+  container.innerHTML = '';
+
+  if (userTeams.length === 0) {
+    container.innerHTML = "<p style='font-size:12px;color:var(--ink-faint);margin-bottom:8px;'>Vous n'avez pas encore d'équipe.</p>";
+  } else {
+    userTeams.forEach(t => {
+      const chip = document.createElement('div');
+      chip.className = 'team-chip' + (t.id === selectedTeamId ? ' selected' : '');
+      chip.textContent = t.name;
+      chip.onclick = () => { selectedTeamId = t.id; renderTeamChips(); };
+      container.appendChild(chip);
+    });
+  }
+}
+
+function addFeedBlock() {
+  feedCount++;
+  const n = feedCount;
+  const container = document.getElementById('feeds-container');
+  const block = document.createElement('div');
+  block.className = 'feed-block';
+  block.id = `feed-block-${n}`;
+  block.innerHTML = `
+    <div class="feed-block-header">
+      <span class="feed-block-title">Flux ${n}</span>
+      <button class="feed-remove" onclick="document.getElementById('feed-block-${n}').remove()" title="Supprimer">×</button>
+    </div>
+    <div class="feed-row">
+      <div class="form-group">
+        <label>URL du flux RSS *</label>
+        <input type="url" id="feed-url-${n}" placeholder="https://example.com/feed.xml" style="font-size:13px;">
+      </div>
+      <button class="btn btn-ghost btn-sm" style="margin-bottom:1px;" onclick="testFeed(${n})">Tester</button>
+    </div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>Nom affiché</label>
+      <input type="text" id="feed-label-${n}" placeholder="Ex : Légifrance" style="font-size:13px;">
+    </div>
+    <div class="form-group" style="margin:0;">
+      <label>Mots-clés filtrants <span style="font-style:italic;text-transform:none;letter-spacing:0;color:var(--ink-faint)">(Entrée pour valider)</span></label>
+      <div class="keywords-input" id="kw-box-${n}" onclick="this.querySelector('.kw-input').focus()">
+        <input class="kw-input" id="kw-input-${n}" type="text" placeholder="Ajouter un mot-clé…"
+          onkeydown="addKeyword(event, ${n})">
+      </div>
+      <div class="form-hint">Laissez vide pour archiver tous les articles du flux.</div>
+    </div>`;
+  container.appendChild(block);
+}
+
+async function testFeed(n) {
+  const url = document.getElementById(`feed-url-${n}`).value.trim();
+  if (!url) { toast("Entrez une URL d'abord", true); return; }
+  toast(`Test du flux en cours…`);
+  // Vérification basique (CORS peut bloquer côté navigateur — on informe)
+  try {
+    const r = await fetch(url, { mode: 'no-cors' });
+    toast('Flux accessible ✓ (vérification complète faite par le workflow)');
+  } catch {
+    toast("Impossible de tester depuis le navigateur — le workflow vérifiera à l'exécution");
+  }
+}
+
+function addKeyword(e, n) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const input = document.getElementById(`kw-input-${n}`);
+  const val = input.value.trim();
+  if (!val) return;
+  const tag = document.createElement('span');
+  tag.className = 'kw-tag';
+  tag.innerHTML = `${val} <button class="kw-remove" onclick="this.parentElement.remove()">×</button>`;
+  document.getElementById(`kw-box-${n}`).insertBefore(tag, input);
+  input.value = '';
+}
+
+function getKeywords(n) {
+  return Array.from(document.querySelectorAll(`#kw-box-${n} .kw-tag`))
+    .map(t => t.childNodes[0].textContent.trim())
+    .filter(Boolean);
+}
+
+async function createWatchlist() {
+  const name = document.getElementById('create-name').value.trim();
+  if (!name) { toast("Le nom est obligatoire", true); return; }
+  if (currentScope === 'team' && !selectedTeamId) { toast("Sélectionnez une équipe", true); return; }
+
+  // Collecter les feeds
+  const feedBlocks = document.querySelectorAll('.feed-block');
+  const feedsData = [];
+  for (const block of feedBlocks) {
+    const n = block.id.split('-').pop();
+    const url = document.getElementById(`feed-url-${n}`)?.value.trim();
+    if (!url) continue;
+    feedsData.push({
+      url,
+      label: document.getElementById(`feed-label-${n}`)?.value.trim() || url,
+      keywords: getKeywords(n),
+    });
+  }
+  if (feedsData.length === 0) { toast("Ajoutez au moins un flux RSS", true); return; }
+
+  const btn = document.getElementById('btn-create');
+  btn.innerHTML = '<div class="spinner"></div> Création…';
+  btn.disabled = true;
+
+  try {
+    // 1. Créer la watchlist
+    const wlArr = await sbFetch('watchlists', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        description: document.getElementById('create-desc').value.trim() || null,
+        owner_id: currentUser.id,
+        scope: currentScope,
+        team_id: currentScope === 'team' ? selectedTeamId : null,
+        frequency: document.getElementById('create-frequency').value,
+      })
+    });
+    const wl = Array.isArray(wlArr) ? wlArr[0] : wlArr;
+    if (!wl?.id) throw new Error('Erreur création watchlist');
+
+    // 2. Créer les feeds
+    const feedsToInsert = feedsData.map(f => ({
+      watchlist_id: wl.id,
+      url: f.url,
+      label: f.label,
+      keywords: f.keywords,
+    }));
+    await sbFetch('feeds', { method: 'POST', body: JSON.stringify(feedsToInsert) });
+
+    toast(`Espace "${name}" créé avec succès ✓`);
+    await loadAll();
+    showPage('dashboard');
+
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 6.5l3 3 6-5.5" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg> Créer l\'espace';
+    btn.disabled = false;
+  }
+}
+
+// ─────────────────────────────────────────
+// ÉQUIPES
+// ─────────────────────────────────────────
+async function loadTeamsPage() {
+  const list = document.getElementById('teams-list');
+  list.innerHTML = '<p style="color:var(--ink-faint);font-size:12px;">Chargement…</p>';
+  if (userTeams.length === 0) {
+    list.innerHTML = '<p style="color:var(--ink-faint);font-size:13px;">Vous n\'avez pas encore d\'équipe.</p>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const t of userTeams) {
+    const members = await sbFetch(
+      `team_members?team_id=eq.${t.id}&select=role,user_id,profiles(display_name,email)`
+    ).catch(() => []);
+
+    const block = document.createElement('div');
+    block.style.cssText = 'margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid var(--border);';
+
+    // En-tête
+    block.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div>
+          <div style="font-weight:600;font-size:15px;">${t.name}</div>
+          <div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">Votre rôle : ${t.role === 'admin' ? 'Administrateur' : 'Membre'} — ${members.length} membre${members.length > 1 ? 's' : ''}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          ${t.role === 'admin' ? `<button class="btn btn-ghost btn-sm" onclick="inviteToTeam('${t.id}','${t.name}')">+ Inviter</button>` : ''}
+          ${t.role === 'admin' ? `<button class="btn btn-danger btn-sm" onclick="deleteTeam('${t.id}','${t.name}')">Supprimer</button>` : ''}
+        </div>
+      </div>
+      <div id="members-${t.id}" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;"></div>`;
+
+    list.appendChild(block);
+
+    const membersList = document.getElementById(`members-${t.id}`);
+    members.forEach((m, i) => {
+      const name = m.profiles?.display_name || m.profiles?.email?.split('@')[0] || '—';
+      const email = m.profiles?.email || '';
+      const isMe = m.user_id === currentUser.id;
+      const row = document.createElement('div');
+      row.style.cssText = `display:flex;align-items:center;justify-content:space-between;padding:10px 14px;${i < members.length-1 ? 'border-bottom:1px solid var(--border-soft);' : ''}`;
+      row.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:30px;height:30px;border-radius:50%;background:var(--navy);color:white;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">${(name[0]||'?').toUpperCase()}</div>
+          <div>
+            <div style="font-size:13px;font-weight:500;">${name}${isMe ? ' <span style="color:var(--ink-faint);font-weight:400;">(moi)</span>' : ''}</div>
+            <div style="font-size:11px;color:var(--ink-faint);">${email}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:11px;color:var(--ink-faint);">${m.role === 'admin' ? 'Admin' : 'Membre'}</span>
+          ${t.role === 'admin' && !isMe ? `<button class="btn btn-danger btn-sm" style="padding:3px 9px;" onclick="removeMember('${t.id}','${m.user_id}','${name}')">Retirer</button>` : ''}
+        </div>`;
+      membersList.appendChild(row);
+    });
+  }
+}
+
+async function createTeam() {
+  const input = document.getElementById('new-team-input');
+  const name = input.value.trim();
+  if (!name) return;
+  await _createTeam(name);
+  input.value = '';
+  renderTeamChips();
+}
+
+async function deleteTeam(teamId, teamName) {
+  if (!confirm(`Supprimer l'équipe "${teamName}" ? Tous les espaces partagés associés resteront mais ne seront plus accessibles aux membres.`)) return;
+  const { error } = await sb.from('teams').delete().eq('id', teamId);
+  if (error) { toast(error.message, true); return; }
+  userTeams = userTeams.filter(t => t.id !== teamId);
+  toast(`Équipe "${teamName}" supprimée`);
+  await loadAll();
+  loadTeamsPage();
+}
+
+async function removeMember(teamId, userId, userName) {
+  if (!confirm(`Retirer ${userName} de cette équipe ?`)) return;
+  const { error } = await sb.from('team_members')
+    .delete().eq('team_id', teamId).eq('user_id', userId);
+  if (error) { toast(error.message, true); return; }
+  toast(`${userName} retiré de l'équipe`);
+  loadTeamsPage();
+}
+
+async function createTeamFromPage() {
+  const input = document.getElementById('team-name-input');
+  const name = input.value.trim();
+  if (!name) return;
+  await _createTeam(name);
+  input.value = '';
+  await loadTeams();
+  await loadTeamsPage();
+}
+
+async function _createTeam(name) {
+  const { data: team, error } = await sb.from('teams')
+    .insert({ name, created_by: currentUser.id })
+    .select().single();
+  if (error) { toast(error.message, true); return; }
+  const { error: err2 } = await sb.from('team_members')
+    .insert({ team_id: team.id, user_id: currentUser.id, role: 'admin' });
+  if (err2) { toast(err2.message, true); return; }
+  userTeams.push({ ...team, role: 'admin' });
+  toast(`Équipe "${name}" créée ✓`);
+}
+
+
+
+
+async function sendEmailInvite() {
+  const email = document.getElementById('invite-email-input').value.trim();
+  const teamId = document.getElementById('invite-team-id').value;
+  const status = document.getElementById('invite-email-status');
+  if (!email || !email.includes('@')) {
+    status.style.color = 'var(--danger)';
+    status.textContent = 'Entrez un email valide.';
+    return;
+  }
+  status.style.color = 'var(--ink-faint)';
+  status.textContent = 'Envoi en cours…';
+
+  // Stocker l'invitation en attente dans une table dédiée
+  const { error } = await sb.from('team_invitations').insert({
+    team_id: teamId,
+    email: email.toLowerCase(),
+    invited_by: currentUser.id
+  }).select();
+
+  if (error && error.code !== '23505') {
+    status.style.color = 'var(--danger)';
+    status.textContent = error.message;
+    return;
+  }
+
+  // Envoyer l'invitation via Supabase Auth
+  const { error: authError } = await sb.auth.signInWithOtp({
+    email: email.toLowerCase(),
+    options: {
+      emailRedirectTo: 'https://bfbf-test.github.io/rcap/',
+      data: { invited_to_team: teamId }
+    }
+  });
+
+  if (authError) {
+    status.style.color = 'var(--danger)';
+    status.textContent = authError.message;
+  } else {
+    status.style.color = 'var(--success, #16a34a)';
+    status.textContent = `Invitation envoyée à ${email} ✓`;
+    document.getElementById('invite-email-input').value = '';
+  }
+}
+
+async function inviteToTeam(teamId, teamName) {
+  document.getElementById('modal-invite-title').textContent = `Inviter dans "${teamName}"`;
+  document.getElementById('invite-team-id').value = teamId;
+  document.getElementById('invite-search-input').value = '';
+  document.getElementById('invite-results').innerHTML = '';
+  document.getElementById('invite-email-input').value = '';
+  document.getElementById('invite-email-status').textContent = '';
+  document.getElementById('modal-invite').classList.remove('hidden');
+  setTimeout(() => document.getElementById('invite-search-input').focus(), 100);
+}
+
+async function searchUsersToInvite() {
+  const q = document.getElementById('invite-search-input').value.trim();
+  const results = document.getElementById('invite-results');
+  if (q.length < 2) { results.innerHTML = ''; return; }
+
+  results.innerHTML = '<div style="color:var(--ink-faint);font-size:12px;padding:8px;">Recherche…</div>';
+
+  const data = await sbFetch(
+    `profiles?or=(display_name.ilike.*${encodeURIComponent(q)}*,email.ilike.*${encodeURIComponent(q)}*)&limit=8&select=id,display_name,email`
+  ).catch(() => []);
+
+  console.log('Résultats recherche:', data);
+
+  if (!data || data.length === 0) {
+    results.innerHTML = '<div style="color:var(--ink-faint);font-size:12px;padding:8px;">Aucun utilisateur trouvé.</div>';
+    return;
+  }
+
+  results.innerHTML = '';
+  data.forEach(u => {
+    if (u.id === currentUser.id) return;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:9px 4px;border-bottom:1px solid var(--border-soft);';
+    const name = u.display_name || u.email?.split('@')[0] || '—';
+    row.innerHTML = `
+      <div>
+        <div style="font-size:13px;font-weight:500;">${name}</div>
+        <div style="font-size:11px;color:var(--ink-faint);">${u.email || ''}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="addToTeam('${u.id}','${name}')">Ajouter</button>`;
+    results.appendChild(row);
+  });
+}
+
+async function addToTeam(userId, userName) {
+  const teamId = document.getElementById('invite-team-id').value;
+  const { error } = await sb.from('team_members').insert({ team_id: teamId, user_id: userId });
+  if (error) {
+    if (error.code === '23505') toast(`${userName} est déjà dans cette équipe`);
+    else toast(error.message, true);
+  } else {
+    toast(`${userName} ajouté à l'équipe ✓`);
+    document.querySelectorAll('#invite-results button').forEach(btn => {
+      if (btn.getAttribute('onclick')?.includes(userId)) {
+        btn.textContent = '✓';
+        btn.disabled = true;
+      }
+    });
+  }
+}
+
+// ─────────────────────────────────────────
+// INIT UTILISATEUR
+// ─────────────────────────────────────────
+function initUserUI(user) {
+  const name = user.user_metadata?.display_name || user.email?.split('@')[0] || 'Utilisateur';
+  document.getElementById('sidebar-name').textContent = name;
+  document.getElementById('sidebar-email').textContent = user.email;
+  // Appliquer avatar sauvegardé
+  const idx = user.user_metadata?.avatar_idx ?? 0;
+  const opt = AVATAR_OPTIONS[idx] || AVATAR_OPTIONS[0];
+  const av = document.getElementById('sidebar-avatar');
+  av.style.background = opt.color;
+  av.textContent = opt.emoji || initials(name);
+}
+
+
+// ─────────────────────────────────────────
+// MODALS
+// ─────────────────────────────────────────
+let watchlistToDelete = null;
+let watchlistToEdit   = null;
+
+function closeModal(name) {
+  document.getElementById('modal-' + name).classList.add('hidden');
+}
+
+function openDeleteModal() {
+  watchlistToDelete = currentWatchlist;
+  document.getElementById('modal-delete-desc').textContent =
+    `Supprimer "${watchlistToDelete.name}" ? Cette action est irréversible. Tous les articles associés seront supprimés.`;
+  document.getElementById('modal-delete').classList.remove('hidden');
+}
+
+async function confirmDelete() {
+  if (!watchlistToDelete) return;
+  const btn = document.getElementById('btn-confirm-delete');
+  btn.disabled = true; btn.textContent = 'Suppression…';
+  try {
+    // Supprimer articles
+    await sbFetch(`articles?watchlist_id=eq.${watchlistToDelete.id}`, { method: 'DELETE' });
+    // Supprimer feeds
+    await sbFetch(`feeds?watchlist_id=eq.${watchlistToDelete.id}`, { method: 'DELETE' });
+    // Supprimer watchlist
+    await sbFetch(`watchlists?id=eq.${watchlistToDelete.id}`, { method: 'DELETE' });
+    toast(`Espace "${watchlistToDelete.name}" supprimé`);
+    closeModal('delete');
+    watchlistToDelete = null;
+    await loadAll();
+    showPage('dashboard');
+  } catch(e) {
+    toast(e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Supprimer définitivement';
+  }
+}
+
+let editFeedCount = 0;
+let editExistingFeeds = [];
+let editScope = 'personal';
+let editSelectedTeamId = null;
+
+function selectEditScope(scope) {
+  editScope = scope;
+  document.getElementById('edit-scope-perso').classList.toggle('selected', scope === 'personal');
+  document.getElementById('edit-scope-team').classList.toggle('selected', scope === 'team');
+  document.getElementById('edit-team-selector').classList.toggle('visible', scope === 'team');
+}
+
+function renderEditTeamChips() {
+  const container = document.getElementById('edit-team-chips');
+  container.innerHTML = '';
+
+  if (userTeams.length === 0) {
+    container.innerHTML = "<p style='font-size:12px;color:var(--ink-faint);margin-bottom:8px;'>Vous n'avez pas encore d'équipe.</p>";
+  } else {
+    userTeams.forEach(t => {
+      const chip = document.createElement('div');
+      chip.className = 'team-chip' + (t.id === editSelectedTeamId ? ' selected' : '');
+      chip.textContent = t.name;
+      chip.onclick = () => { editSelectedTeamId = t.id; renderEditTeamChips(); };
+      container.appendChild(chip);
+    });
+  }
+
+  // Toujours afficher le champ de création
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;margin-top:10px;';
+  row.innerHTML = `
+    <input id="edit-new-team-input" type="text" placeholder="Créer une nouvelle équipe…"
+      style="flex:1;padding:8px 11px;border:1.5px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;"
+      onkeydown="if(event.key==='Enter') createTeamFromEdit()">
+    <button class="btn btn-ghost btn-sm" onclick="createTeamFromEdit()">Créer</button>`;
+  container.appendChild(row);
+}
+
+async function createTeamFromEdit() {
+  const input = document.getElementById('edit-new-team-input');
+  const name = input.value.trim();
+  if (!name) return;
+  await _createTeam(name);
+  input.value = '';
+  // Sélectionner automatiquement la nouvelle équipe
+  const newTeam = userTeams[userTeams.length - 1];
+  if (newTeam) editSelectedTeamId = newTeam.id;
+  renderEditTeamChips();
+}
+
+async function openEditModal() {
+  watchlistToEdit = currentWatchlist;
+  document.getElementById('edit-name').value = watchlistToEdit.name || '';
+  document.getElementById('edit-desc').value = watchlistToEdit.description || '';
+
+  // Initialiser la portée
+  editScope = watchlistToEdit.scope || 'personal';
+  editSelectedTeamId = watchlistToEdit.team_id || null;
+  document.getElementById('edit-scope-perso').classList.toggle('selected', editScope === 'personal');
+  document.getElementById('edit-scope-team').classList.toggle('selected', editScope === 'team');
+  document.getElementById('edit-team-selector').classList.toggle('visible', editScope === 'team');
+  renderEditTeamChips();
+  // Si c'est déjà un espace d'équipe, on ne peut pas le repasser en perso
+  const scopeSection = document.querySelector('#modal-edit .scope-grid').parentElement;
+  if (watchlistToEdit.scope === 'team') {
+    document.getElementById('edit-scope-perso').style.opacity = '0.4';
+    document.getElementById('edit-scope-perso').style.pointerEvents = 'none';
+    document.getElementById('edit-scope-perso').title = "Impossible de repasser en perso — faites plutôt une copie";
+  } else {
+    document.getElementById('edit-scope-perso').style.opacity = '';
+    document.getElementById('edit-scope-perso').style.pointerEvents = '';
+    document.getElementById('edit-scope-perso').title = '';
+  }
+
+  // Charger les flux existants
+  editFeedCount = 0;
+  const container = document.getElementById('edit-feeds-container');
+  container.innerHTML = '';
+  editExistingFeeds = await sbFetch(`feeds?watchlist_id=eq.${watchlistToEdit.id}&select=id,url,label,keywords`).catch(() => []);
+  editExistingFeeds.forEach(f => addEditFeedBlock(f));
+  if (editExistingFeeds.length === 0) addEditFeedBlock();
+
+  document.getElementById('modal-edit').classList.remove('hidden');
+}
+
+function addEditFeedBlock(feed = null) {
+  editFeedCount++;
+  const n = 'ef' + editFeedCount;
+  const container = document.getElementById('edit-feeds-container');
+  const block = document.createElement('div');
+  block.className = 'feed-block';
+  block.id = `edit-feed-block-${n}`;
+  block.dataset.feedId = feed?.id || '';
+  const keywords = (feed?.keywords || []).map(k =>
+    `<span class="kw-tag">${k} <button class="kw-remove" onclick="this.parentElement.remove()">×</button></span>`
+  ).join('');
+  block.innerHTML = `
+    <div class="feed-block-header">
+      <span class="feed-block-title">${feed ? feed.label || feed.url : 'Nouveau flux'}</span>
+      <button class="feed-remove" onclick="document.getElementById('edit-feed-block-${n}').remove()">×</button>
+    </div>
+    <div class="form-group">
+      <label>URL du flux RSS *</label>
+      <input type="url" id="efu-${n}" value="${feed?.url || ''}" placeholder="https://example.com/feed.xml" style="font-size:13px;">
+    </div>
+    <div class="form-group">
+      <label>Nom affiché</label>
+      <input type="text" id="efl-${n}" value="${feed?.label || ''}" placeholder="Ex : Légifrance" style="font-size:13px;">
+    </div>
+    <div class="form-group" style="margin:0;">
+      <label>Mots-clés <span style="font-style:italic;text-transform:none;letter-spacing:0;color:var(--ink-faint)">(Entrée pour valider)</span></label>
+      <div class="keywords-input" id="efk-${n}" onclick="this.querySelector('.kw-input').focus()">
+        ${keywords}
+        <input class="kw-input" id="efki-${n}" type="text" placeholder="Ajouter un mot-clé…"
+          onkeydown="addEditKeyword(event,'${n}')">
+      </div>
+    </div>`;
+  container.appendChild(block);
+}
+
+function addEditKeyword(e, n) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const input = document.getElementById(`efki-${n}`);
+  const val = input.value.trim();
+  if (!val) return;
+  const tag = document.createElement('span');
+  tag.className = 'kw-tag';
+  tag.innerHTML = `${val} <button class="kw-remove" onclick="this.parentElement.remove()">×</button>`;
+  document.getElementById(`efk-${n}`).insertBefore(tag, input);
+  input.value = '';
+}
+
+function getEditKeywords(n) {
+  return Array.from(document.querySelectorAll(`#efk-${n} .kw-tag`))
+    .map(t => t.childNodes[0].textContent.trim()).filter(Boolean);
+}
+
+async function confirmEdit() {
+  const name = document.getElementById('edit-name').value.trim();
+  if (!name) { toast("Le nom est obligatoire", true); return; }
+  try {
+    if (editScope === 'team' && !editSelectedTeamId) {
+      toast("Sélectionnez une équipe", true); return;
+    }
+    // Mettre à jour la watchlist
+    await sbFetch(`watchlists?id=eq.${watchlistToEdit.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        name,
+        description: document.getElementById('edit-desc').value.trim() || null,
+        scope: editScope,
+        team_id: editScope === 'team' ? editSelectedTeamId : null,
+      })
+    });
+
+    // Mettre à jour / créer les flux
+    const blocks = document.querySelectorAll('#edit-feeds-container .feed-block');
+    for (const block of blocks) {
+      const n = block.id.replace('edit-feed-block-', '');
+      const url = document.getElementById(`efu-${n}`)?.value.trim();
+      if (!url) continue;
+      const label = document.getElementById(`efl-${n}`)?.value.trim() || url;
+      const keywords = getEditKeywords(n);
+      const feedId = block.dataset.feedId;
+
+      if (feedId) {
+        // Mettre à jour existant
+        await sbFetch(`feeds?id=eq.${feedId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ url, label, keywords })
+        });
+      } else {
+        // Nouveau flux
+        await sbFetch('feeds', {
+          method: 'POST',
+          body: JSON.stringify({ watchlist_id: watchlistToEdit.id, url, label, keywords })
+        });
+      }
+    }
+
+    // Supprimer les flux retirés (présents en base mais plus dans le DOM)
+    const keptIds = Array.from(document.querySelectorAll('#edit-feeds-container .feed-block'))
+      .map(b => b.dataset.feedId).filter(Boolean);
+    for (const f of editExistingFeeds) {
+      if (!keptIds.includes(f.id)) {
+        await sbFetch(`feeds?id=eq.${f.id}`, { method: 'DELETE' });
+      }
+    }
+
+    toast('Espace mis à jour ✓');
+    closeModal('edit');
+    currentWatchlist = { ...currentWatchlist, name };
+    document.getElementById('topbar-title').innerHTML = `<em>${name}</em>`;
+    await loadAll();
+  } catch(e) {
+    toast(e.message, true);
+  }
+}
+
+// ─────────────────────────────────────────
+// PAGE COMPTE
+// ─────────────────────────────────────────
+const AVATAR_OPTIONS = [
+  // Initiales — couleurs
+  { color: '#1b3a6b', emoji: null },
+  { color: '#f47920', emoji: null },
+  { color: '#16a34a', emoji: null },
+  { color: '#7c3aed', emoji: null },
+  { color: '#0891b2', emoji: null },
+  { color: '#dc2626', emoji: null },
+  { color: '#be185d', emoji: null },
+  { color: '#b45309', emoji: null },
+  { color: '#065f46', emoji: null },
+  { color: '#1e3a5f', emoji: null },
+  { color: '#6d28d9', emoji: null },
+  { color: '#0f766e', emoji: null },
+  // Animaux
+  { color: '#1b3a6b', emoji: '🦊' },
+  { color: '#f47920', emoji: '🦁' },
+  { color: '#16a34a', emoji: '🐸' },
+  { color: '#7c3aed', emoji: '🦋' },
+  { color: '#0891b2', emoji: '🐬' },
+  { color: '#1b3a6b', emoji: '🐻' },
+  { color: '#dc2626', emoji: '🦅' },
+  { color: '#be185d', emoji: '🦩' },
+  { color: '#065f46', emoji: '🐢' },
+  { color: '#b45309', emoji: '🦔' },
+  { color: '#0891b2', emoji: '🐙' },
+  { color: '#6d28d9', emoji: '🦄' },
+  { color: '#f47920', emoji: '🐯' },
+  { color: '#16a34a', emoji: '🐊' },
+  { color: '#1b3a6b', emoji: '🐺' },
+  { color: '#dc2626', emoji: '🦀' },
+  { color: '#0f766e', emoji: '🐉' },
+  { color: '#be185d', emoji: '🦚' },
+  // Nature & objets
+  { color: '#1b3a6b', emoji: '🌊' },
+  { color: '#f47920', emoji: '🔥' },
+  { color: '#16a34a', emoji: '🌿' },
+  { color: '#7c3aed', emoji: '⚡' },
+  { color: '#0891b2', emoji: '❄️' },
+  { color: '#dc2626', emoji: '🌋' },
+  { color: '#b45309', emoji: '🍂' },
+  { color: '#065f46', emoji: '🌲' },
+  { color: '#be185d', emoji: '🌸' },
+  { color: '#6d28d9', emoji: '🌙' },
+  { color: '#1b3a6b', emoji: '⭐' },
+  { color: '#0f766e', emoji: '🌏' },
+  // Visages & persos
+  { color: '#1b3a6b', emoji: '🤖' },
+  { color: '#f47920', emoji: '👾' },
+  { color: '#7c3aed', emoji: '🧙' },
+  { color: '#dc2626', emoji: '🥷' },
+  { color: '#16a34a', emoji: '🧑‍🚀' },
+  { color: '#0891b2', emoji: '🧑‍💻' },
+  { color: '#b45309', emoji: '🧑‍🎨' },
+  { color: '#be185d', emoji: '🧑‍🔬' },
+  { color: '#6d28d9', emoji: '🧝' },
+  { color: '#065f46', emoji: '🧌' },
+  // Sport & jeu
+  { color: '#1b3a6b', emoji: '⚽' },
+  { color: '#f47920', emoji: '🏀' },
+  { color: '#dc2626', emoji: '🎯' },
+  { color: '#7c3aed', emoji: '🎮' },
+  { color: '#16a34a', emoji: '🎸' },
+  { color: '#0891b2', emoji: '🎲' },
+  { color: '#b45309', emoji: '🏆' },
+  { color: '#be185d', emoji: '🎪' },
+];
+let selectedAvatarIdx = 0;
+
+function renderAvatarPicker(currentIdx) {
+  const picker = document.getElementById('avatar-picker');
+  picker.innerHTML = '';
+  AVATAR_OPTIONS.forEach((opt, i) => {
+    const el = document.createElement('div');
+    el.className = 'avatar-opt' + (i === currentIdx ? ' selected' : '');
+    el.style.background = opt.color;
+    el.style.color = 'white';
+    const name = currentUser.user_metadata?.display_name || currentUser.email?.split('@')[0] || '?';
+    el.textContent = opt.emoji || initials(name);
+    el.onclick = () => {
+      selectedAvatarIdx = i;
+      document.querySelectorAll('.avatar-opt').forEach(e => e.classList.remove('selected'));
+      el.classList.add('selected');
+      // Prévisualiser
+      applyAvatar(name, opt);
+    };
+    picker.appendChild(el);
+  });
+}
+
+function applyAvatar(name, opt) {
+  const els = ['account-avatar-big', 'sidebar-avatar'];
+  els.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.background = opt.color;
+      el.textContent = opt.emoji || initials(name);
+    }
+  });
+}
+
+function initAccountPage() {
+  const name = currentUser.user_metadata?.display_name || currentUser.email?.split('@')[0] || '';
+  const avatarIdx = currentUser.user_metadata?.avatar_idx ?? 0;
+  selectedAvatarIdx = avatarIdx;
+  document.getElementById('account-display-name').textContent = name || currentUser.email;
+  document.getElementById('account-email').textContent = currentUser.email;
+  document.getElementById('account-name-input').value = name;
+  renderAvatarPicker(avatarIdx);
+  applyAvatar(name, AVATAR_OPTIONS[avatarIdx] || AVATAR_OPTIONS[0]);
+}
+
+function initAvatarFromUser(user) {
+  const name = user.user_metadata?.display_name || user.email?.split('@')[0] || '?';
+  const idx = user.user_metadata?.avatar_idx ?? 0;
+  const opt = AVATAR_OPTIONS[idx] || AVATAR_OPTIONS[0];
+  const el = document.getElementById('sidebar-avatar');
+  if (el) { el.style.background = opt.color; el.textContent = opt.emoji || initials(name); }
+}
+
+async function saveDisplayName() {
+  const name = document.getElementById('account-name-input').value.trim();
+  if (!name) { toast("Entrez un nom", true); return; }
+  const opt = AVATAR_OPTIONS[selectedAvatarIdx] || AVATAR_OPTIONS[0];
+  const { error } = await sb.auth.updateUser({
+    data: { display_name: name, avatar_idx: selectedAvatarIdx }
+  });
+  if (error) { toast(error.message, true); return; }
+  toast('Profil mis à jour ✓');
+  document.getElementById('sidebar-name').textContent = name;
+  document.getElementById('account-display-name').textContent = name;
+  applyAvatar(name, opt);
+  // Rafraîchir les initiales dans le picker
+  renderAvatarPicker(selectedAvatarIdx);
+}
+
+async function savePassword() {
+  const pw1 = document.getElementById('account-pw1').value;
+  const pw2 = document.getElementById('account-pw2').value;
+  if (!pw1) { toast("Entrez un mot de passe", true); return; }
+  if (pw1 !== pw2) { toast("Les mots de passe ne correspondent pas", true); return; }
+  if (pw1.length < 6) { toast("Minimum 6 caractères", true); return; }
+  const { error } = await sb.auth.updateUser({ password: pw1 });
+  if (error) { toast(error.message, true); return; }
+  toast('Mot de passe mis à jour ✓');
+  document.getElementById('account-pw1').value = '';
+  document.getElementById('account-pw2').value = '';
+}
+
+
+// ─────────────────────────────────────────
+// ACTIONS MEMBRES (non-owner)
+// ─────────────────────────────────────────
+async function duplicateToPersonal() {
+  const w = currentWatchlist;
+  try {
+    // Créer une copie personnelle
+    const wlArr = await sbFetch('watchlists', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: w.name + ' (copie)',
+        description: w.description || null,
+        owner_id: currentUser.id,
+        scope: 'personal',
+        team_id: null,
+        frequency: w.frequency || '3x_day',
+      })
+    });
+    const newWl = Array.isArray(wlArr) ? wlArr[0] : wlArr;
+    if (!newWl?.id) throw new Error('Erreur création');
+
+    // Copier les flux
+    const feeds = await sbFetch(`feeds?watchlist_id=eq.${w.id}&select=url,label,keywords`).catch(() => []);
+    if (feeds.length > 0) {
+      await sbFetch('feeds', {
+        method: 'POST',
+        body: JSON.stringify(feeds.map(f => ({
+          watchlist_id: newWl.id, url: f.url, label: f.label, keywords: f.keywords
+        })))
+      });
+    }
+
+    toast(`Espace "${w.name}" dupliqué en perso ✓`);
+    await loadAll();
+    showPage('dashboard');
+  } catch(e) {
+    toast(e.message, true);
+  }
+}
+
+async function leaveTeamSpace() {
+  const w = currentWatchlist;
+  if (!confirm(`Quitter l'équipe associée à "${w.name}" ? Vous n'aurez plus accès à cet espace.`)) return;
+  try {
+    await sbFetch(`team_members?team_id=eq.${w.team_id}&user_id=eq.${currentUser.id}`, {
+      method: 'DELETE'
+    });
+    toast('Vous avez quitté cet espace équipe');
+    await loadAll();
+    showPage('dashboard');
+  } catch(e) {
+    toast(e.message, true);
+  }
+}
+
+
+async function openDeleteAccountModal() {
+  document.getElementById('delete-account-confirm').value = '';
+  document.getElementById('modal-delete-account').classList.remove('hidden');
+}
+
+async function confirmDeleteAccount() {
+  const input = document.getElementById('delete-account-confirm').value.trim().toLowerCase();
+  if (input !== currentUser.email.toLowerCase()) {
+    toast("L'email ne correspond pas", true);
+    return;
+  }
+
+  try {
+    // Supprimer les données dans l'ordre
+    await sbFetch(`articles?watchlist_id=in.(${
+      (await sbFetch(`watchlists?owner_id=eq.${currentUser.id}&select=id`)).map(w=>w.id).join(',') || 'null'
+    })`, { method: 'DELETE' }).catch(() => {});
+    await sbFetch(`feeds?watchlist_id=in.(${
+      (await sbFetch(`watchlists?owner_id=eq.${currentUser.id}&select=id`)).map(w=>w.id).join(',') || 'null'
+    })`, { method: 'DELETE' }).catch(() => {});
+    await sbFetch(`watchlists?owner_id=eq.${currentUser.id}`, { method: 'DELETE' }).catch(() => {});
+    await sbFetch(`team_members?user_id=eq.${currentUser.id}`, { method: 'DELETE' }).catch(() => {});
+
+    // Supprimer le compte via Supabase Auth
+    const { error } = await sb.rpc('delete_user');
+    if (error) throw error;
+
+    await sb.auth.signOut();
+    location.reload();
+  } catch(e) {
+    toast(e.message, true);
+  }
+}
+
+
+// ─────────────────────────────────────────
+// ADMIN
+// ─────────────────────────────────────────
+let isAdmin = false;
+
+async function checkAdmin() {
+  const data = await sbFetch(`profiles?id=eq.${currentUser.id}&select=is_admin`).catch(() => []);
+  isAdmin = data?.[0]?.is_admin === true;
+  const link = document.getElementById('sidebar-admin-link');
+  if (link) link.classList.toggle('hidden', !isAdmin);
+}
+
+function showAdminTab(tab) {
+  ['users','spaces','teams-admin'].forEach(t => {
+    document.getElementById(`admin-tab-${t}`).style.display = t === tab ? 'block' : 'none';
+    document.getElementById(`tab-${t}`)?.classList.toggle('active', t === tab);
+  });
+}
+
+async function loadAdminPage() {
+  if (!isAdmin) { showPage('dashboard'); return; }
+
+  // Stats
+  const [users, spaces, teams, articles] = await Promise.all([
+    sbFetch('profiles?select=id').catch(() => []),
+    sbFetch('watchlists?select=id').catch(() => []),
+    sbFetch('teams?select=id').catch(() => []),
+    sbFetch('articles?select=id&limit=1', ).catch(() => []),
+  ]);
+
+  // Pour les articles on fait un count
+  const artCount = await sbFetchCount('articles').catch(() => '?');
+
+  document.querySelector('#stat-users .stat-val').textContent = users.length;
+  document.querySelector('#stat-spaces .stat-val').textContent = spaces.length;
+  document.querySelector('#stat-teams .stat-val').textContent = teams.length;
+  document.querySelector('#stat-articles .stat-val').textContent = artCount;
+
+  showAdminTab('users');
+  await loadAdminUsers();
+}
+
+async function sbFetchCount(table) {
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?select=id', {
+    headers: {
+      'apikey': SUPABASE_ANON,
+      'Authorization': 'Bearer ' + (getToken() || SUPABASE_ANON),
+      'Prefer': 'count=exact',
+      'Range': '0-0',
+    }
+  });
+  const range = res.headers.get('content-range');
+  return range ? range.split('/')[1] : '?';
+}
+
+async function loadAdminUsers() {
+  const container = document.getElementById('admin-tab-users');
+  container.innerHTML = '<p style="color:var(--ink-faint);font-size:12px;">Chargement…</p>';
+
+  const users = await sbFetch('profiles?select=id,display_name,email,is_admin,created_at&order=created_at.desc').catch(() => []);
+
+  let html = `<table class="admin-table">
+    <thead><tr>
+      <th>Utilisateur</th><th>Email</th><th>Inscription</th><th>Rôle</th><th></th>
+    </tr></thead><tbody>`;
+
+  users.forEach(u => {
+    const name = u.display_name || u.email?.split('@')[0] || '—';
+    const date = u.created_at ? new Date(u.created_at).toLocaleDateString('fr-FR') : '—';
+    const isMe = u.id === currentUser.id;
+    html += `<tr>
+      <td><strong>${name}</strong>${isMe ? ' <span style="font-size:11px;color:var(--ink-faint)">(moi)</span>' : ''}</td>
+      <td style="color:var(--ink-faint);">${u.email || '—'}</td>
+      <td style="color:var(--ink-faint);">${date}</td>
+      <td>${u.is_admin ? '<span style="color:#f47920;font-weight:600;">Admin</span>' : 'Membre'}</td>
+      <td style="text-align:right;">
+        ${!isMe ? `<button class="btn btn-ghost btn-sm" onclick="toggleAdmin('${u.id}',${u.is_admin},'${name}')">${u.is_admin ? 'Retirer admin' : 'Rendre admin'}</button>` : ''}
+      </td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+async function loadAdminSpaces() {
+  const container = document.getElementById('admin-tab-spaces');
+  container.innerHTML = '<p style="color:var(--ink-faint);font-size:12px;">Chargement…</p>';
+
+  const spaces = await sbFetch('watchlists?select=id,name,scope,created_at,owner_id,profiles(display_name,email)&order=created_at.desc').catch(() => []);
+
+  let html = `<table class="admin-table">
+    <thead><tr>
+      <th>Espace</th><th>Créateur</th><th>Type</th><th>Date</th>
+    </tr></thead><tbody>`;
+
+  spaces.forEach(w => {
+    const owner = w.profiles?.display_name || w.profiles?.email?.split('@')[0] || '—';
+    const date = w.created_at ? new Date(w.created_at).toLocaleDateString('fr-FR') : '—';
+    html += `<tr>
+      <td><strong>${w.name}</strong></td>
+      <td style="color:var(--ink-faint);">${owner}</td>
+      <td><span style="font-size:11px;padding:2px 8px;border-radius:99px;background:${w.scope==='team'?'#fff3e8;color:#f47920':'#e8f0fb;color:#1b3a6b'};">${w.scope==='team'?'Équipe':'Personnel'}</span></td>
+      <td style="color:var(--ink-faint);">${date}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+async function loadAdminTeams() {
+  const container = document.getElementById('admin-tab-teams-admin');
+  container.innerHTML = '<p style="color:var(--ink-faint);font-size:12px;">Chargement…</p>';
+
+  const teams = await sbFetch('teams?select=id,name,created_at,profiles(display_name,email)&order=created_at.desc').catch(() => []);
+
+  let html = `<table class="admin-table">
+    <thead><tr>
+      <th>Équipe</th><th>Créateur</th><th>Membres</th><th>Date</th>
+    </tr></thead><tbody>`;
+
+  for (const t of teams) {
+    const creator = t.profiles?.display_name || t.profiles?.email?.split('@')[0] || '—';
+    const date = t.created_at ? new Date(t.created_at).toLocaleDateString('fr-FR') : '—';
+    const members = await sbFetch(`team_members?team_id=eq.${t.id}&select=id`).catch(() => []);
+    html += `<tr>
+      <td><strong>${t.name}</strong></td>
+      <td style="color:var(--ink-faint);">${creator}</td>
+      <td>${members.length} membre${members.length > 1 ? 's' : ''}</td>
+      <td style="color:var(--ink-faint);">${date}</td>
+    </tr>`;
+  }
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+async function toggleAdmin(userId, currentlyAdmin, name) {
+  if (!confirm(`${currentlyAdmin ? 'Retirer les droits admin de' : 'Donner les droits admin à'} ${name} ?`)) return;
+  const { error } = await sb.from('profiles').update({ is_admin: !currentlyAdmin }).eq('id', userId);
+  if (error) { toast(error.message, true); return; }
+  toast(`${name} ${currentlyAdmin ? 'n'est plus admin' : 'est maintenant admin'} ✓`);
+  await loadAdminUsers();
+}
+
+// Charger le bon onglet au clic
+const _origShowAdminTab = showAdminTab;
+function showAdminTab(tab) {
+  _origShowAdminTab(tab);
+  if (tab === 'spaces') loadAdminSpaces();
+  if (tab === 'teams-admin') loadAdminTeams();
+}
+
+// ─────────────────────────────────────────
+// BOOTSTRAP — point d'entrée
+// ─────────────────────────────────────────
+// Timeout secours
+const loaderTimeout = setTimeout(() => {
+  const l = document.getElementById("loader");
+  const ls = document.getElementById("screen-login");
+  if (l && l.style.display !== "none") {
+    l.style.opacity = "0";
+    setTimeout(() => l.style.display = "none", 400);
+    ls.classList.remove("hidden");
+  }
+}, 4000);
+
+sb.auth.onAuthStateChange(async (event, session) => {
+  clearTimeout(loaderTimeout);
+  const loader = document.getElementById('loader');
+  const loginScreen = document.getElementById('screen-login');
+  const appEl = document.getElementById('app');
+
+  if (session?.user) {
+    // TOKEN_REFRESHED = retour d'onglet, on ne réinitialise pas la vue
+    if (event === 'TOKEN_REFRESHED' && currentUser) {
+      currentUser = session.user;
+      return;
+    }
+    const isFirstLoad = !currentUser;
+    currentUser = session.user;
+    loginScreen.classList.add('hidden');
+    appEl.classList.add('visible');
+    initUserUI(currentUser);
+    await loadAll();
+    await checkAdmin();
+    if (isFirstLoad) {
+      showPage('dashboard');
+      loader.style.opacity = '0';
+      setTimeout(() => loader.style.display = 'none', 400);
+    }
+  } else {
+    currentUser = null;
+    appEl.classList.remove('visible');
+    loginScreen.classList.remove('hidden');
+    loader.style.opacity = '0';
+    setTimeout(() => loader.style.display = 'none', 400);
+  }
+});
+</script>
+
+<!-- ════════════════════════════════════════
+     MODAL : SUPPRIMER UN ESPACE
+════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-delete">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('delete')">×</button>
+    <div class="modal-title">Supprimer l'espace</div>
+    <div class="modal-desc" id="modal-delete-desc">Cette action est irréversible. Tous les articles associés seront supprimés.</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('delete')">Annuler</button>
+      <button class="btn btn-danger" id="btn-confirm-delete" onclick="confirmDelete()">Supprimer définitivement</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     MODAL : ÉDITER UN ESPACE
+════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-edit">
+  <div class="modal" style="width:620px;max-height:90vh;overflow-y:auto;">
+    <button class="modal-close" onclick="closeModal('edit')">×</button>
+    <div class="modal-title">Modifier l'espace</div>
+    <div class="modal-desc">Nom, description et sources RSS de cet espace.</div>
+
+    <div class="form-group">
+      <label>Nom *</label>
+      <input id="edit-name" type="text">
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <textarea id="edit-desc" style="min-height:56px;"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label>Portée</label>
+      <div class="scope-grid" style="margin-bottom:8px;">
+        <div class="scope-opt perso" id="edit-scope-perso" onclick="selectEditScope('personal')">
+          <div class="scope-icon">👤</div>
+          <div class="scope-label">Personnel</div>
+          <div class="scope-desc">Visible par moi uniquement</div>
+        </div>
+        <div class="scope-opt team" id="edit-scope-team" onclick="selectEditScope('team')">
+          <div class="scope-icon">👥</div>
+          <div class="scope-label">Équipe</div>
+          <div class="scope-desc">Partagé avec mon équipe</div>
+        </div>
+      </div>
+      <div class="team-selector" id="edit-team-selector">
+        <label style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-light);font-weight:500;">Choisir une équipe</label>
+        <div class="team-chips" id="edit-team-chips"></div>
+      </div>
+    </div>
+
+    <div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-light);font-weight:500;margin-bottom:10px;">Flux RSS</div>
+    <div id="edit-feeds-container"></div>
+    <button class="add-feed-btn" onclick="addEditFeedBlock()" style="margin-bottom:16px;">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 2v9M2 6.5h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Ajouter un flux RSS
+    </button>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('edit')">Annuler</button>
+      <button class="btn btn-primary" onclick="confirmEdit()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+
+
+<!-- ════════════════════════════════════════
+     MODAL : INVITER DANS UNE ÉQUIPE
+════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-invite">
+  <div class="modal" style="width:480px;">
+    <button class="modal-close" onclick="closeModal('invite')">×</button>
+    <div class="modal-title" id="modal-invite-title">Inviter dans l'équipe</div>
+    <div class="modal-desc">Recherchez un collègue déjà inscrit, ou invitez quelqu'un par email.</div>
+    <input type="hidden" id="invite-team-id">
+
+    <div style="font-size:11px;font-weight:600;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Membres existants</div>
+    <div class="search-box" style="max-width:100%;margin-bottom:6px;">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 9.5L12.5 12.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      <input type="text" id="invite-search-input" placeholder="Rechercher par nom ou email…" oninput="searchUsersToInvite()" style="width:100%;">
+    </div>
+    <div id="invite-results" style="min-height:40px;max-height:200px;overflow-y:auto;margin-bottom:20px;"></div>
+
+    <div style="font-size:11px;font-weight:600;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Inviter par email</div>
+    <div style="font-size:12px;color:var(--ink-faint);margin-bottom:10px;">La personne recevra un email pour créer son compte et rejoindre l'équipe.</div>
+    <div style="display:flex;gap:8px;">
+      <input type="email" id="invite-email-input" placeholder="prenom.nom@reseau-canope.fr"
+        style="flex:1;padding:8px 11px;border:1.5px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;"
+        onkeydown="if(event.key==='Enter') sendEmailInvite()">
+      <button class="btn btn-primary btn-sm" onclick="sendEmailInvite()">Envoyer</button>
+    </div>
+    <div id="invite-email-status" style="font-size:12px;margin-top:8px;"></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('invite')">Fermer</button>
+    </div>
+  </div>
+</div>
+
+
+
+<!-- ════════════════════════════════════════
+     MODAL : SUPPRIMER LE COMPTE
+════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-delete-account">
+  <div class="modal" style="width:440px;">
+    <div class="modal-title" style="color:var(--danger);">Supprimer mon compte</div>
+    <div class="modal-desc">Pour confirmer, tapez votre email ci-dessous :</div>
+    <input id="delete-account-confirm" type="email" placeholder="votre@email.fr"
+      style="width:100%;padding:9px 12px;border:1.5px solid var(--danger);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:8px;box-sizing:border-box;">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('delete-account')">Annuler</button>
+      <button class="btn btn-danger" onclick="confirmDeleteAccount()">Supprimer définitivement</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -20,7 +20,7 @@ L'objectif est de permettre à n'importe quelle organisation de :
 - **Garder la mémoire** de ce qui a été lu
 - **Exporter** vers ses propres outils (CSV, JSON, Markdown, OPML, BibTeX…)
 
-RCap est une **preuve de concept**. Il est conçu pour être compris, forké, adapté — pas pour être utilisé tel quel comme un produit fini. Le code est volontairement simple : pas de framework front-end, pas de système de build. Tout tient dans **deux fichiers et une base de données**.
+RCap est une **preuve de concept**. Il est conçu pour être compris, forké, adapté — pas pour être utilisé tel quel comme un produit fini. Le code est volontairement simple. Tout tient dans **deux fichiers et une base de données**.
 
 ---
 

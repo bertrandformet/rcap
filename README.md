@@ -42,7 +42,7 @@ Chaque échange suit un schéma question / réponse / vérification : l'humain e
 
 ### Un lieu d'apprentissage
 
-Le co-développement humain + IA ne devait pas être en partie une boîte noire.
+Le co-développement humain + IA ne devait pas déboucher sur des parties de "boîte noire" inexplicables.
 À chaque étape, les choix techniques sont explicités : pourquoi cette structure de données, pourquoi ce compromis. La compréhension est centrale — aucun bloc de code n'est intégré sans être lu et compris. C'est aussi un mode d'apprentissage concret : on part d'un besoin, on obtient une solution fonctionnelle, et on comprend chaque brique avant d'en poser une autre.
 
 ### Limites et vigilances

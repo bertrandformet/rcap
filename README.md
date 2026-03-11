@@ -11,7 +11,7 @@
 
 La veille informationnelle est un problème quotidien dans beaucoup d'organisations : trop de sources, trop d'articles, pas assez de temps. Les outils SaaS existants sont souvent trop complexes à configurer pour des non-techniciens, trop chers pour de petites équipes, ou trop opaques sur ce qu'ils font des données.
 
-RCap part d'un constat simple : **un agrégateur RSS avec des comptes, des équipes et un filtre par mots-clés suffit à couvrir 80 % des besoins de veille**.
+RCap part d'un constat simple : **un agrégateur RSS avec des comptes, des équipes et un filtre par mots-clés devrait suffire à couvrir 75/80 % des besoins de veille**.
 
 L'objectif est de permettre à n'importe quelle organisation de :
 - **Organiser ses sources** en espaces thématiques

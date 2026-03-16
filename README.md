@@ -152,7 +152,7 @@ Au démarrage de fetch.js :
 
 ## Démo
 
-Une instance de démonstration est disponible à : **https://bfbf-test.github.io/rcap/**
+Une instance de démonstration est disponible à : **https://bertrandformet.github.io/rcap/**
 
 Comptes de test (lecture et exploration libres) :
 

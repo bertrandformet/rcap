@@ -158,8 +158,8 @@ Comptes de test (lecture et exploration libres) :
 
 | Email | Mot de passe |
 |-------|-------------|
-| `demo1@rcap.dev` | `rcap-demo` |
-| `demo2@rcap.dev` | `rcap-demo` |
+| 'demo-util@rcap.dev', compte utilisateur | `rcap-demo` |
+| `demo-admin@rcap.dev`, compte admin | `rcap-demo` |
 
 ---
 
